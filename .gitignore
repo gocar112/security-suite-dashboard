@@ -1,0 +1,20 @@
+# Runtime state - findings and triage are local to each deployment
+data/
+config.json
+
+# Watched folder: keep the directory, never commit what lands in it
+uploads/*
+!uploads/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

