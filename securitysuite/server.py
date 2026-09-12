@@ -146,15 +146,18 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/state":
             self._json(self._state())
         elif route == "/api/findings":
+            findings = self.ctx.store.events(
+                limit=int(params.get("limit", 200)),
+                severity=params.get("severity"),
+                event_type=params.get("type"),
+                status=params.get("status"),
+                search=params.get("q"),
+            )
+            if self.ctx.remediator is not None:
+                findings = self.ctx.remediator.annotate_many(findings)
             self._json(
                 {
-                    "findings": self.ctx.store.events(
-                        limit=int(params.get("limit", 200)),
-                        severity=params.get("severity"),
-                        event_type=params.get("type"),
-                        status=params.get("status"),
-                        search=params.get("q"),
-                    )
+                    "findings": findings
                 }
             )
         elif route == "/api/rules":
@@ -315,6 +318,14 @@ class Handler(BaseHTTPRequestHandler):
                  "message": "Reloaded " + str(info["rule_count"]) + " rules"}
             )
             self._json(info)
+        elif route == "/api/findings/clear":
+            # Every other destructive route demands an explicit confirm; this
+            # one wipes the whole dashboard, so it does too.
+            if not body.get("confirm"):
+                self._json({"error": "confirmation required",
+                            "detail": "resend with confirm=true"}, 409)
+                return
+            self._json(self.ctx.store.clear())
         elif route == "/api/osv/query":
             if self.ctx.osv is None:
                 self._json({"error": "osv adapter not enabled"}, 503)
@@ -348,7 +359,15 @@ class Handler(BaseHTTPRequestHandler):
                 allow_directory=bool(body.get("allow_directory")),
             )
             # A refusal is a considered answer, not a server fault: 409.
-            self._json(result, 200 if result.get("ok") else 409)
+            if result.get("ok"):
+                code = 200
+            elif result.get("refused") == "unknown finding":
+                code = 404
+            elif result.get("refused") == "unknown action":
+                code = 400
+            else:
+                code = 409
+            self._json(result, code)
         elif route == "/api/remediate/bulk":
             if self.ctx.remediator is None:
                 self._json({"error": "remediation not enabled"}, 503)

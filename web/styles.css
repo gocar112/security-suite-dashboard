@@ -111,6 +111,9 @@ body.focus-mode .findings-panel { box-shadow: 0 0 0 1px rgba(71, 224, 192, .2), 
 /* Finding detail drawer remains a focused triage surface. */
 .drawer-backdrop { position: fixed; inset: 0; background: rgba(2, 8, 15, .74); backdrop-filter: blur(3px); z-index: 60; }.drawer { position: fixed; inset: 0 0 0 auto; width: min(620px, 96vw); display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); z-index: 61; animation: drawer-in .2s ease-out; } @keyframes drawer-in { from { transform: translateX(25px); opacity: .4; } }.drawer > header { position: static; background: var(--panel-2); padding: 13px 18px; border-bottom: 1px solid var(--line); }.drawer .brand h1 { margin: 0; font-size: 15px; }.drawer .brand span { color: var(--text-faint); font: 10px var(--mono); }.drawer .content { overflow: auto; flex: 1; padding: 17px 18px; }.drawer .actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 18px; background: var(--panel-2); border-top: 1px solid var(--line); }.drawer h3 { margin: 18px 0 8px; color: var(--text-faint); font: 9px var(--mono); letter-spacing: .1em; text-transform: uppercase; }.drawer h3:first-child { margin-top: 0; }.match { padding: 11px 13px; margin-bottom: 9px; background: var(--panel-2); border: 1px solid var(--line); }.match .head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 5px; }.match .head code { color: var(--text); font: 11px var(--mono); }.strings { color: var(--text-dim); font: 10px var(--mono); }.strings div { padding: 3px 0; border-top: 1px solid var(--line-soft); }.tele-row { display: grid; grid-template-columns: 126px 89px 1fr; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line-soft); font: 10px var(--mono); }
 .drawer .actions button { color: var(--text-dim); background: transparent; border: 1px solid var(--line); padding: 7px 10px; font-size: 11px; }.drawer .actions button:hover { color: var(--teal); border-color: var(--teal-dim); }.drawer .actions button.primary { color: var(--ink); background: var(--teal); border-color: var(--teal); }
+.drawer .actions button:disabled { opacity: .38; cursor: not-allowed; }
+.drawer .actions button:disabled:hover { color: var(--text-dim); border-color: var(--line); background: transparent; }
+.target-state { font: 10px var(--mono); text-transform: uppercase; letter-spacing: .06em; }
 .toast { position: fixed; bottom: 20px; left: 50%; z-index: 90; max-width: 80vw; transform: translateX(-50%); padding: 10px 15px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--teal); animation: drawer-in .18s ease-out; }.toast.err { border-left-color: var(--coral); }
 ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #21425a; } ::-webkit-scrollbar-thumb:hover { background: #2d617b; }
 
@@ -146,6 +149,9 @@ body.focus-mode .findings-panel { box-shadow: 0 0 0 1px rgba(71, 224, 192, .2), 
   word-break: break-all; }
 .ioc-files { font-size: 11px; color: #8ea0b5; word-break: break-all; }
 .ioc-scope { font-size: 10px; color: #5d6f85; margin-left: 6px; }
+.ioc-pivot { display: inline-block; margin-left: 7px; color: var(--blue);
+  font: 10px var(--mono); text-decoration: none; border-bottom: 1px solid rgba(109,183,255,.4); }
+.ioc-pivot:hover { color: var(--teal); border-bottom-color: var(--teal); }
 .ioc-empty { padding: 22px; text-align: center; color: #5d6f85; font-size: 12.5px; }
 
 /* --------------------------------------------- findings table column sizing */
@@ -166,6 +172,14 @@ body.focus-mode .findings-panel { box-shadow: 0 0 0 1px rgba(71, 224, 192, .2), 
   display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font-size: 10.5px; margin-top: 2px; cursor: help;
 }
+.target-badge {
+  display: inline-block; margin-top: 4px; padding: 1px 5px; border: 1px solid var(--line);
+  color: var(--text-faint); font: 9px var(--mono); text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.target-delete, .target-purged, .target-gone { color: var(--coral); border-color: rgba(255,109,120,.45); }
+.target-quarantine { color: var(--amber); border-color: rgba(255,181,90,.45); }
+.target-present { color: var(--ok); }
 .findings-panel .rules-cell { overflow: hidden; }
 .findings-panel .rules-cell code { max-width: 100%; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
@@ -194,6 +208,8 @@ body.focus-mode .findings-panel { box-shadow: 0 0 0 1px rgba(71, 224, 192, .2), 
 .danger-btn:hover:not(:disabled) { color: #0b1c2e; background: var(--coral); }
 .danger-btn:disabled { opacity: .38; cursor: not-allowed; }
 .danger-btn.armed { animation: arm-pulse 1s ease-in-out infinite; font-weight: 600; }
+.toolbar .danger-btn { min-height: 32px; }
+.clear-lines-btn { margin-left: auto; white-space: nowrap; }
 @keyframes arm-pulse { 50% { background: rgba(255,109,120,.30); } }
 
 .rail-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 11px; }

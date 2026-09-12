@@ -236,14 +236,23 @@ def summarise(events: list) -> dict:
                     "scope": item.get("scope", ""),
                     "occurrences": 0,
                     "files": [],
+                    "finding_ids": [],
                     "first_seen": event.get("timestamp"),
                     "last_seen": event.get("timestamp"),
                 }
+                if item["type"] == "cve":
+                    cve = str(item["value"]).upper()
+                    record["value"] = cve
+                    record["defanged"] = cve
+                    record["nvd_url"] = "https://nvd.nist.gov/vuln/detail/" + cve
                 agg[key] = record
             record["occurrences"] += item.get("count", 1)
             name = event.get("file_name") or event.get("file_path", "")
             if name and name not in record["files"]:
                 record["files"].append(name)
+            finding_id = event.get("id")
+            if finding_id and finding_id not in record["finding_ids"]:
+                record["finding_ids"].append(finding_id)
             stamp = event.get("timestamp")
             if stamp:
                 if not record["first_seen"] or stamp < record["first_seen"]:
@@ -255,6 +264,7 @@ def summarise(events: list) -> dict:
     for item in items:
         item["file_count"] = len(item["files"])
         item["files"] = item["files"][:8]
+        item["finding_ids"] = item.get("finding_ids", [])[:8]
     # Indicators seen across several files matter more than one-offs.
     items.sort(key=lambda i: (-i["file_count"], -i["occurrences"], i["type"]))
 
@@ -266,12 +276,16 @@ def summarise(events: list) -> dict:
 
 def to_csv(items: list) -> str:
     """Flat CSV for handing to a SIEM or a spreadsheet."""
-    rows = ["type,value,defanged,scope,occurrences,file_count,first_seen,last_seen"]
+    columns = (
+        "type", "value", "defanged", "scope", "occurrences", "file_count",
+        "first_seen", "last_seen", "nvd_url", "finding_ids",
+    )
+    rows = [",".join(columns)]
     for item in items:
         def cell(value):
+            if isinstance(value, list):
+                value = ";".join(str(v) for v in value)
             text = str(value if value is not None else "")
             return '"' + text.replace('"', '""') + '"' if "," in text or '"' in text else text
-        rows.append(",".join(cell(item.get(k)) for k in (
-            "type", "value", "defanged", "scope", "occurrences",
-            "file_count", "first_seen", "last_seen")))
+        rows.append(",".join(cell(item.get(k)) for k in columns))
     return "\n".join(rows) + "\n"

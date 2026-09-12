@@ -107,6 +107,13 @@ class Remediator:
         complete. Protect the tree and carve out the watch paths instead.
         """
         roots = [self.project_root, self.quarantine_dir]
+        roots.extend([
+            self.project_root / "securitysuite",
+            Path(getattr(self.cfg, "rules_dir", self.project_root / "rules")),
+            self.project_root / "book",
+            self.project_root / "assets",
+            self.project_root / "data",
+        ])
         # Individual state files, in case they are configured outside the tree.
         for attr in ("findings_log", "triage_file", "remediation_file",
                      "nvd_cache_dir", "guidance_cache_dir", "osv_cache_dir",
@@ -125,11 +132,18 @@ class Remediator:
         monitor at the project would re-open everything this guard closes.
         """
         project = _norm(self.project_root)
+        protected_children = [
+            _norm(root) for root in self.suite_owned_roots()
+            if _norm(root) != project
+        ]
         out = []
         for watched in self.permitted_roots():
             resolved = _norm(watched)
             if resolved != project and resolved.startswith(
                     project.rstrip(os.sep) + os.sep):
+                if any(_within(resolved, root) or _within(root, resolved)
+                       for root in protected_children):
+                    continue
                 out.append(watched)
         return out
 
@@ -223,23 +237,76 @@ class Remediator:
     def state_for(self, finding_id: str) -> dict | None:
         return self._state.get(finding_id)
 
+    def annotate(self, finding: dict) -> dict:
+        """Return a UI-safe copy with remediation and target state attached."""
+        item = dict(finding)
+        if item.get("event_type") != "yara_match":
+            return item
+        state = self._state.get(str(item.get("id", "")))
+        if state:
+            item["remediation"] = dict(state)
+        path = str(item.get("file_path") or "")
+        exists = bool(path and os.path.exists(path))
+        item["target_exists"] = exists
+        if state and state.get("action") in ("delete", "quarantine", "purged"):
+            item["target_state"] = state.get("action")
+        else:
+            item["target_state"] = "present" if exists else "gone"
+        return item
+
+    def annotate_many(self, findings: list[dict]) -> list[dict]:
+        return [self.annotate(finding) for finding in findings]
+
+    @staticmethod
+    def _target_refusal(annotated: dict) -> str:
+        target = annotated.get("target_state")
+        if target == "gone":
+            return "target is gone"
+        if target == "delete":
+            return "already deleted"
+        if target == "quarantine":
+            return "already quarantined"
+        if target == "purged":
+            return "already purged"
+        return ""
+
     # ----------------------------------------------------------------- actions
     def act(self, finding_id: str, action: str, *, confirm: bool = False,
             dry_run: bool = False, allow_directory: bool = False,
             trigger: str = "manual") -> dict:
         """Resolve a finding, run the rails, and act. Never raises."""
         if action not in ACTIONS:
-            return {"ok": False, "refused": "unknown action",
-                    "detail": "expected one of " + ", ".join(ACTIONS)}
+            result = {"ok": False, "action": action, "finding": finding_id,
+                      "dry_run": bool(dry_run), "trigger": trigger,
+                      "refused": "unknown action",
+                      "detail": "expected one of " + ", ".join(ACTIONS)}
+            if not dry_run:
+                self._audit(dict(result, outcome="refused"))
+            return result
 
         finding = self._find(finding_id)
         if finding is None:
-            return {"ok": False, "refused": "unknown finding",
-                    "detail": "no finding with id " + str(finding_id)}
+            result = {"ok": False, "action": action, "finding": finding_id,
+                      "dry_run": bool(dry_run), "trigger": trigger,
+                      "refused": "unknown finding",
+                      "detail": "no finding with id " + str(finding_id)}
+            if not dry_run:
+                self._audit(dict(result, outcome="refused"))
+            return result
 
         if action in ("restore", "purge"):
             return self._from_quarantine(finding_id, finding, action,
                                          confirm, dry_run, trigger)
+
+        if finding.get("event_type") != "yara_match":
+            result = {"ok": False, "action": action, "finding": finding_id,
+                      "path": str(finding.get("file_path") or ""),
+                      "dry_run": bool(dry_run), "trigger": trigger,
+                      "refused": "not a detection",
+                      "detail": "only yara_match findings can be remediated"}
+            if not dry_run:
+                self._audit(dict(result, outcome="refused"))
+            return result
 
         path = str(finding.get("file_path") or "")
         result = {
@@ -249,12 +316,32 @@ class Remediator:
             "rules": finding.get("rule_names", []),
         }
 
+        previous = self._state.get(finding_id)
+        if previous and previous.get("action") in ("delete", "quarantine", "purged"):
+            labels = {
+                "delete": "already deleted",
+                "quarantine": "already quarantined",
+                "purged": "already purged",
+            }
+            outcome = labels.get(str(previous.get("action")), "already handled")
+            result.update({
+                "ok": False,
+                "refused": outcome,
+                "outcome": outcome,
+                "detail": previous.get("detail", ""),
+                "remediation": dict(previous),
+            })
+            if not dry_run:
+                self._audit(dict(result, outcome="refused"))
+            return result
+
         try:
             checks = self._check(path, allow_directory)
             checks = self._verify_hash(path, finding.get("sha256", ""), checks)
         except Refused as exc:
             result.update({"refused": exc.reason, "detail": exc.detail})
-            self._audit(dict(result, outcome="refused"))
+            if not dry_run:
+                self._audit(dict(result, outcome="refused"))
             return result
         result["checks"] = checks
 
@@ -337,6 +424,8 @@ class Remediator:
         if not state or state.get("action") != "quarantine":
             result.update({"refused": "not quarantined",
                            "detail": "this finding has no quarantined file"})
+            if not dry_run:
+                self._audit(dict(result, outcome="refused"))
             return result
 
         holding = self.quarantine_dir / finding_id
@@ -345,9 +434,30 @@ class Remediator:
         if not stored.exists():
             result.update({"refused": "quarantined file is gone",
                            "detail": str(stored)})
+            if not dry_run:
+                self._audit(dict(result, outcome="refused"))
             return result
 
         result["path"] = str(stored)
+        if action == "restore":
+            try:
+                protector = self.is_protected(original)
+                if protector:
+                    raise Refused("suite-owned path",
+                                  "refusing to restore inside " + str(protector))
+                roots = self.permitted_roots()
+                if not any(_within(original, root) for root in roots):
+                    raise Refused("outside permitted roots",
+                                  "not inside any of: " + ", ".join(roots))
+                if os.path.exists(original):
+                    raise Refused("restore target exists",
+                                  original + " already exists")
+            except Refused as exc:
+                result.update({"refused": exc.reason, "detail": exc.detail})
+                if not dry_run:
+                    self._audit(dict(result, outcome="refused"))
+                return result
+
         if dry_run:
             result.update({"ok": True,
                            "outcome": "would " + action,
@@ -356,6 +466,7 @@ class Remediator:
         if not confirm:
             result.update({"refused": "confirmation required",
                            "detail": "resend with confirm=true"})
+            self._audit(dict(result, outcome="refused"))
             return result
 
         try:
@@ -397,24 +508,61 @@ class Remediator:
         """
         extensions = [e.lower().lstrip(".") for e in (extensions or []) if e]
         candidates, results = [], []
+        seen_targets = set()
         for event in self.store.events(limit=2000, event_type="yara_match"):
             if event.get("id") in self._state:
                 continue                               # already acted on
-            if severity and severity != "all" and event.get("severity") != severity:
-                continue
-            name = str(event.get("file_name") or "")
+            if severity and severity != "all":
+                rank = SEVERITY_RANK.get(event.get("severity", "info"), 99)
+                threshold = SEVERITY_RANK.get(severity, 99)
+                if rank > threshold:
+                    continue
+                # "critical" remains exact because it is the top rank.
+                if severity == "critical" and event.get("severity") != "critical":
+                    continue
+            name = str(event.get("file_name") or
+                       os.path.basename(str(event.get("file_path") or "")))
             if extensions and name.rsplit(".", 1)[-1].lower() not in extensions:
                 continue
+            target_key = _norm(event.get("file_path") or event.get("id") or "")
+            if target_key in seen_targets:
+                continue
+            seen_targets.add(target_key)
             candidates.append(event)
             if len(candidates) >= limit:
                 break
 
         for event in candidates:
+            annotated = self.annotate(event)
+            refusal = self._target_refusal(annotated)
+            if refusal:
+                refused = {
+                    "ok": False,
+                    "action": action,
+                    "finding": event.get("id"),
+                    "path": event.get("file_path", ""),
+                    "dry_run": bool(dry_run),
+                    "trigger": "bulk",
+                    "severity": event.get("severity"),
+                    "rules": event.get("rule_names", []),
+                    "refused": refusal,
+                    "detail": "the latest target state is " +
+                              str(annotated.get("target_state")),
+                }
+                if not dry_run:
+                    self._audit(dict(refused, outcome="refused"))
+                results.append(refused)
+                continue
             results.append(self.act(event["id"], action, confirm=confirm,
                                     dry_run=dry_run, trigger="bulk"))
         acted = sum(1 for r in results if r.get("ok") and not r.get("dry_run"))
+        actionable = sum(1 for r in results
+                         if not r.get("refused") and
+                         (r.get("ok") or r.get("dry_run")))
         return {
             "matched": len(candidates), "acted": acted, "dry_run": dry_run,
+            "actionable": actionable,
+            "refused": sum(1 for r in results if r.get("refused")),
             "action": action, "severity": severity or "all",
             "extensions": extensions, "results": results,
         }

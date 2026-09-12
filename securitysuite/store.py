@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import shutil
 import threading
 import time
 import uuid
@@ -133,6 +134,58 @@ class EventStore:
             except OSError as exc:
                 print("[-] Could not persist triage state: " + str(exc))
             return dict(target)
+
+    def clear(self, backup: bool = True) -> dict:
+        """Clear detection noise from the dashboard.
+
+        Remediation records are deliberately *not* cleared. findings.ndjson is
+        the audit trail for every destructive action taken and every one
+        refused, and truncating it would destroy the only evidence of what the
+        tool deleted. Clearing is a dashboard convenience; it must not be a way
+        to erase that history.
+
+        The backup is unconditional for the same reason - a caller cannot opt
+        out of it.
+        """
+        backup = True                     # not caller-controllable, see above
+        backup_dir = ""
+        with self._lock:
+            event_count = len(self._events)
+            triage_count = len(self._triage)
+            kept = [e for e in self._events
+                    if e.get("event_type") == "remediation"]
+            if backup:
+                stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                backup_path = self.path.parent / "log-backups" / stamp
+                try:
+                    backup_path.mkdir(parents=True, exist_ok=True)
+                    if self.path.exists():
+                        shutil.copy2(self.path, backup_path / self.path.name)
+                    if self.triage_path.exists():
+                        shutil.copy2(self.triage_path, backup_path / self.triage_path.name)
+                    backup_dir = str(backup_path)
+                except OSError as exc:
+                    print("[-] Could not back up logs before clear: " + str(exc))
+            self._events.clear()
+            self._triage.clear()
+            self.counters.clear()
+            for event in kept:            # audit records survive the clear
+                self._events.append(event)
+                self._count(event)
+            try:
+                self.path.write_text(
+                    "".join(json.dumps(e, default=str) + chr(10) for e in kept),
+                    encoding="utf-8")
+                self.triage_path.write_text("{}", encoding="utf-8")
+            except OSError as exc:
+                print("[-] Could not clear finding state: " + str(exc))
+        return {
+            "cleared": True,
+            "events": event_count,
+            "triage": triage_count,
+            "audit_retained": len(kept),
+            "backup_dir": backup_dir,
+        }
 
     # ------------------------------------------------------------------ read
     def events(

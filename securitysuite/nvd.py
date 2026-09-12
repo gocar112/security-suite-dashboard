@@ -27,7 +27,7 @@ MAX_WINDOW_DAYS = 120           # NVD rejects date ranges wider than this
 CVE_ID_PREFIX = "CVE-"
 # Bumped when normalise() changes shape, so stale cache entries are
 # treated as a miss rather than silently served without new fields.
-SCHEMA = 2
+SCHEMA = 3
 PATCH_TAGS = {"Patch", "Vendor Advisory", "Mitigation"}
 
 SEVERITY_MAP = {                # NVD CVSS severity -> suite severity
@@ -101,6 +101,8 @@ def normalise(entry: dict) -> dict:
         "references": len(cve.get("references", []) or []),
         "patch_refs": patch_refs[:8],
         "kev": bool(cve.get("cisaExploitAdd")),
+        "kev_name": cve.get("cisaVulnerabilityName", ""),
+        "exploit_added": cve.get("cisaExploitAdd", ""),
         "kev_required_action": cve.get("cisaRequiredAction", ""),
         "kev_action_due": cve.get("cisaActionDue", ""),
         "source": cve.get("sourceIdentifier", ""),

@@ -29,6 +29,7 @@ from .store import now_iso
 
 CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
 PATCH_TAGS = {"Patch", "Vendor Advisory", "Mitigation", "Release Notes"}
+GUIDANCE_SCHEMA = 2
 
 # Keyed by rule namespace first, then by tag. Ordered - step one is step one.
 PLAYBOOKS = {
@@ -246,33 +247,30 @@ class Guidance:
         cached = self.cache_dir / (cve_id + ".json")
         if cached.exists():
             try:
-                return json.loads(cached.read_text(encoding="utf-8"))
+                detail = json.loads(cached.read_text(encoding="utf-8"))
+                if detail.get("schema") == GUIDANCE_SCHEMA:
+                    return detail
             except (OSError, json.JSONDecodeError):
                 pass
         if self.nvd is None:
             return {"id": cve_id, "error": "no NVD client configured"}
 
         try:
-            payload = self.nvd._get({"cveId": cve_id})
-            items = payload.get("vulnerabilities") or []
-            raw = items[0].get("cve", {}) if items else {}
+            record = self.nvd.fetch_cve(cve_id)
         except Exception as exc:
             return {"id": cve_id, "error": str(exc)}
+        if record.get("error"):
+            return {"id": cve_id, "error": record.get("error")}
 
-        refs = []
-        for ref in raw.get("references", []) or []:
-            tags = set(ref.get("tags") or [])
-            if tags & PATCH_TAGS:
-                refs.append({"url": ref.get("url", ""),
-                             "tags": sorted(tags & PATCH_TAGS)})
         detail = {
+            "schema": GUIDANCE_SCHEMA,
             "id": cve_id,
-            "kev": bool(raw.get("cisaExploitAdd")),
-            "kev_name": raw.get("cisaVulnerabilityName", ""),
-            "required_action": raw.get("cisaRequiredAction", ""),
-            "action_due": raw.get("cisaActionDue", ""),
-            "exploit_added": raw.get("cisaExploitAdd", ""),
-            "patch_refs": refs[:8],
+            "kev": bool(record.get("kev")),
+            "kev_name": record.get("kev_name", ""),
+            "required_action": record.get("kev_required_action", ""),
+            "action_due": record.get("kev_action_due", ""),
+            "exploit_added": record.get("exploit_added", ""),
+            "patch_refs": (record.get("patch_refs") or [])[:8],
             "fetched_at": now_iso(),
         }
         try:

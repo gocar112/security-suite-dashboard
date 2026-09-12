@@ -59,6 +59,22 @@ function baseName(p) {
   return String(p || "").split(/[\\/]/).pop() || String(p || "");
 }
 
+function targetStateLabel(finding) {
+  if (!finding || finding.event_type !== "yara_match") return "";
+  const target = finding.target_state || (finding.target_exists === false ? "gone" : "");
+  if (!target || target === "present") return "";
+  if (target === "delete") return "deleted";
+  if (target === "quarantine") return "quarantined";
+  return target === "gone" ? "file gone" : target;
+}
+
+function targetStateBadge(finding) {
+  const label = targetStateLabel(finding);
+  if (!label) return "";
+  const target = String(finding.target_state || "gone").replace(/[^a-z_]/g, "");
+  return '<span class="target-badge target-' + esc(target) + '">' + esc(label) + '</span>';
+}
+
 function toast(message, isError) {
   const el = document.createElement("div");
   el.className = "toast" + (isError ? " err" : "");
@@ -70,7 +86,12 @@ function toast(message, isError) {
 async function api(path, options) {
   const res = await fetch(path, options);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.status + " " + res.statusText);
+  if (!res.ok) {
+    const err = new Error(data.error || data.refused || res.status + " " + res.statusText);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 
@@ -249,12 +270,14 @@ function rowHtml(finding) {
   const sevClass = finding.event_type === "yara_match" ? "sev-" + sev
     : finding.event_type === "error" ? "sev-medium" : "sev-info";
   const status = finding.status || "new";
+  const targetBadge = targetStateBadge(finding);
   return '<tr data-id="' + esc(finding.id) + '">' +
     '<td><span class="sev ' + sevClass + '">' + esc(label) + '</span></td>' +
     '<td class="mono dim">' + clockOf(finding.timestamp) + '</td>' +
     '<td class="file-cell"><div class="mono path">' + esc(baseName(finding.file_path)) + '</div>' +
     '<div class="faint path-full" title="' + esc(finding.file_path || "") + '">' +
-      esc(shortPath(finding.file_path) || finding.message || "") + '</div></td>' +
+      esc(shortPath(finding.file_path) || finding.message || "") + '</div>' +
+      targetBadge + '</td>' +
     '<td class="rules-cell">' + (rules.length
       ? rules.map((r) => "<code>" + esc(r) + "</code>").join("")
       : '<span class="faint">-</span>') + '</td>' +
@@ -266,6 +289,20 @@ function renderRows(findings) {
   $("rows").innerHTML = findings.map(rowHtml).join("");
   $("empty").style.display = findings.length ? "none" : "block";
   $("findings-count").textContent = findings.length + " shown";
+}
+
+function clearLocalLines() {
+  state.findings = [];
+  state.selected = null;
+  state.feedSeeded = false;
+  renderRows([]);
+  const feed = $("feed");
+  if (feed) feed.innerHTML = "";
+  const rows = $("ioc-rows");
+  if (rows) rows.innerHTML = '<tr><td colspan="4" class="ioc-empty">No indicators yet. They are pulled from files that match a rule.</td></tr>';
+  const summary = $("ioc-summary");
+  if (summary) summary.innerHTML = "";
+  closeDrawer();
 }
 
 async function loadFindings() {
@@ -311,6 +348,11 @@ function openDrawer(id) {
   const tele = finding.telemetry || {};
   const events = tele.events || [];
   const sev = finding.severity || "info";
+  const targetLabel = targetStateLabel(finding) ||
+    (finding.event_type === "yara_match" && finding.target_exists === true ? "present" : "-");
+  const targetClass = String(
+    finding.target_state || (finding.target_exists === false ? "gone" : "present")
+  ).replace(/[^a-z_]/g, "");
 
   const html =
     '<h3>Verdict</h3>' +
@@ -323,6 +365,8 @@ function openDrawer(id) {
     '<h3>File</h3>' +
     '<dl class="kv">' +
       '<dt>Path</dt><dd class="mono">' + esc(finding.file_path || "-") + '</dd>' +
+      '<dt>Target</dt><dd class="target-state target-' + esc(targetClass) + '">' +
+        esc(targetLabel) + '</dd>' +
       '<dt>SHA-256</dt><dd class="mono">' + esc(finding.sha256 || "-") + '</dd>' +
       '<dt>Size</dt><dd>' + bytes(finding.file_size) + '</dd>' +
       '<dt>Entropy</dt><dd>' + esc(finding.entropy ?? "-") +
@@ -366,6 +410,7 @@ function openDrawer(id) {
   $("drawer-content").innerHTML = html;
   $("drawer-title").textContent = baseName(finding.file_path) || finding.event_type;
   $("drawer-wrap").style.display = "block";
+  updateDrawerActions(finding);
   loadGuidance(id);
 }
 
@@ -373,6 +418,29 @@ function closeDrawer() {
   state.selected = null;
   $("drawer-wrap").style.display = "none";
   document.querySelectorAll("#rows tr.selected").forEach((tr) => tr.classList.remove("selected"));
+}
+
+function updateDrawerActions(finding) {
+  const target = finding.target_state || "";
+  const isDetection = finding.event_type === "yara_match";
+  const quarantined = target === "quarantine" ||
+    (finding.remediation && finding.remediation.action === "quarantine");
+  const alreadyFinal = ["delete", "quarantine", "purged"].includes(target);
+  document.querySelectorAll("#drawer-wrap [data-remediate]").forEach((btn) => {
+    const action = btn.dataset.remediate;
+    let disabled = !isDetection;
+    if (action === "delete" || action === "quarantine") {
+      disabled = disabled || finding.target_exists === false || alreadyFinal;
+    } else if (action === "restore" || action === "purge") {
+      disabled = disabled || !quarantined;
+    }
+    btn.disabled = disabled;
+    btn.title = disabled
+      ? (!isDetection
+        ? "Only detections can be remediated"
+        : "The original file is " + (targetStateLabel(finding) || "not in quarantine"))
+      : "";
+  });
 }
 
 async function triage(status) {
@@ -510,11 +578,15 @@ function renderIocs(data) {
     const cls = IOC_CLASS[i.type] || "";
     const scope = i.scope && i.scope !== "external"
       ? '<span class="ioc-scope">' + esc(i.scope) + '</span>' : "";
+    const pivot = i.nvd_url
+      ? '<a class="ioc-pivot" href="' + esc(i.nvd_url) +
+        '" target="_blank" rel="noreferrer">NVD</a>'
+      : "";
     const files = (i.files || []).slice(0, 3).map(esc).join(", ") +
       (i.file_count > 3 ? ' +' + (i.file_count - 3) + ' more' : "");
     return '<tr>' +
       '<td><span class="ioc-type ' + cls + '">' + esc(i.type) + '</span></td>' +
-      '<td class="ioc-value">' + esc(i.defanged) + scope + '</td>' +
+      '<td class="ioc-value">' + esc(i.defanged) + scope + pivot + '</td>' +
       '<td class="ioc-files">' + files + '</td>' +
       '<td class="mono">' + i.occurrences + '</td>' +
       '</tr>';
@@ -528,10 +600,16 @@ function iocSection(finding) {
   return '<h3>Extracted indicators (' + items.length + ')</h3>' +
     '<div class="dim" style="font-size:12px;margin-bottom:6px">' +
     'Pulled from this file. Defanged \u2014 safe to paste into a ticket.</div>' +
-    items.map((i) =>
-      '<div class="tele-row"><span>' + esc(i.type) + '</span>' +
-      '<span class="mono" style="word-break:break-all">' + esc(i.defanged) + '</span>' +
-      '<span class="faint">' + esc(i.scope || "") + '</span></div>').join("");
+    items.map((i) => {
+      const cvePivot = i.type === "cve"
+        ? ' &middot; <a class="ioc-pivot" href="https://nvd.nist.gov/vuln/detail/' +
+          encodeURIComponent(i.value || i.defanged) +
+          '" target="_blank" rel="noreferrer">NVD</a>'
+        : "";
+      return '<div class="tele-row"><span>' + esc(i.type) + '</span>' +
+        '<span class="mono" style="word-break:break-all">' + esc(i.defanged) + '</span>' +
+        '<span class="faint">' + esc(i.scope || "") + cvePivot + '</span></div>';
+    }).join("");
 }
 
 /* --------------------------------------------------------------- lifecycle */
@@ -690,29 +768,83 @@ async function loadGuidance(findingId) {
 }
 
 async function remediate(action) {
-  if (!state.selected) return;
-  const finding = state.findings.find((f) => f.id === state.selected);
+  const selectedId = state.selected;
+  if (!selectedId) return;
+  const finding = state.findings.find((f) => f.id === selectedId);
   const name = finding ? baseName(finding.file_path) : "this file";
+  const quarantined = finding && (finding.target_state === "quarantine" ||
+    (finding.remediation && finding.remediation.action === "quarantine"));
+  const handled = finding && ["delete", "quarantine", "purged"].includes(finding.target_state);
+  if (finding && finding.event_type !== "yara_match") {
+    toast(name + " is not a detection, so remediation is disabled", true);
+    updateDrawerActions(finding);
+    return;
+  }
+  if ((action === "delete" || action === "quarantine") &&
+      finding && (finding.target_exists === false || handled)) {
+    toast(name + " cannot be remediated because the original target is " +
+      (targetStateLabel(finding) || "not on disk"), true);
+    updateDrawerActions(finding);
+    return;
+  }
+  if ((action === "restore" || action === "purge") && !quarantined) {
+    toast(name + " is not quarantined", true);
+    updateDrawerActions(finding);
+    return;
+  }
   if (action === "delete" &&
       !confirm("Permanently delete " + name + "?\n\nThis cannot be undone. " +
                "If this detection is a false positive the file is lost.")) {
     return;
   }
+  if (action === "purge" &&
+      !confirm("Permanently purge " + name + " from quarantine?\n\nThis cannot be undone.")) {
+    return;
+  }
+  if (action === "restore" &&
+      !confirm("Restore " + name + " from quarantine to its original path?")) {
+    return;
+  }
   try {
     const res = await post("/api/remediate", {
-      id: state.selected, action, confirm: true,
+      id: selectedId, action, confirm: true,
     });
     toast(res.ok ? name + ": " + res.outcome
                  : "Refused - " + res.refused + " (" + (res.detail || "") + ")",
           !res.ok);
     if (res.ok) {
-      const idx = state.findings.findIndex((f) => f.id === state.selected);
-      if (idx >= 0) state.findings[idx].remediation = {
-        action, at: res.timestamp || "", detail: res.detail || "" };
+      const idx = state.findings.findIndex((f) => f.id === selectedId);
+      if (idx >= 0) {
+        state.findings[idx].remediation = res.remediation || {
+          action, at: res.timestamp || "", detail: res.detail || "" };
+        if (action === "restore") {
+          delete state.findings[idx].remediation;
+          state.findings[idx].target_exists = true;
+          state.findings[idx].target_state = "present";
+        } else {
+          state.findings[idx].target_exists = false;
+          state.findings[idx].target_state = action;
+        }
+        renderRows(state.findings);
+      }
       loadRemediation();
+      loadFindings();
       closeDrawer();
     }
   } catch (err) {
+    const data = err.data || {};
+    if (data.refused) {
+      toast("Refused - " + data.refused + (data.detail ? " (" + data.detail + ")" : ""), true);
+      const idx = state.findings.findIndex((f) => f.id === selectedId);
+      if (idx >= 0 && data.refused === "target is gone") {
+        state.findings[idx].target_exists = false;
+        state.findings[idx].target_state = "gone";
+        renderRows(state.findings);
+        updateDrawerActions(state.findings[idx]);
+      }
+      loadRemediation();
+      return;
+    }
     toast(err.message, true);
   }
 }
@@ -798,6 +930,24 @@ function wire() {
       renderRules(info);
       toast("Reloaded " + info.rule_count + " rules in " + info.compile_ms + " ms");
     } catch (err) { toast(err.message, true); }
+  });
+
+  $("btn-clear-lines").addEventListener("click", async () => {
+    if (!confirm("Clear all dashboard lines?\n\nThis backs up the active finding log, then clears the table, feed, and triage sidecar.")) {
+      return;
+    }
+    try {
+      const result = await post("/api/findings/clear", { backup: true });
+      clearLocalLines();
+      toast("Cleared " + result.events + " line(s)" +
+        (result.backup_dir ? " / backup saved" : ""));
+      refresh();
+      loadFindings();
+      loadIocs();
+      loadRemediation();
+    } catch (err) {
+      toast("Clear failed: " + err.message, true);
+    }
   });
 
   ["ioc-type", "ioc-external"].forEach((id) => {
@@ -901,7 +1051,9 @@ function mountDrawer() {
       '<button data-triage="false_positive">False positive</button>' +
       '<button data-triage="new" class="ghost">Reopen</button>' +
       '<button data-remediate="quarantine">Quarantine</button>' +
+      '<button data-remediate="restore">Restore</button>' +
       '<button data-remediate="delete" class="danger-btn">Delete file</button>' +
+      '<button data-remediate="purge" class="danger-btn">Purge</button>' +
     '</div></div>';
   document.body.appendChild(wrap);
   $("drawer-close").addEventListener("click", closeDrawer);
