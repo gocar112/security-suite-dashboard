@@ -6,9 +6,11 @@ import {
   targetStateLabel, targetStateBadge, toast, api, post,
 } from "./js/core.js";
 import { attackChips, attackSection, loadAttack, renderAttack } from "./js/attack.js";
-import { mountRouter, showView } from "./js/router.js";
+import { mountRouter, showView, onView } from "./js/router.js";
 import { mountHunt, runHunt } from "./js/hunt.js";
 import { mountPalette } from "./js/palette.js";
+import { mountGraph, loadGraph } from "./js/graph.js";
+import { mountCases, refreshCases, createCase } from "./js/cases.js";
 
 /* -------------------------------------------------------------------- KPI */
 function renderStats(stats, monitor) {
@@ -1039,6 +1041,28 @@ document.addEventListener("suite:filter", (e) => {
   loadFindings();
 });
 document.addEventListener("suite:hunt", (e) => runHunt((e.detail || {}).query));
+document.addEventListener("suite:open-finding", (e) => {
+  showView("findings");
+  openDrawer((e.detail || {}).id);
+});
+document.addEventListener("suite:case-from-campaign", (e) => {
+  const ids = (e.detail || {}).finding_ids || [];
+  showView("cases");
+  createCase(ids, {
+    title: "Campaign: " + ids.length + " linked findings",
+    severity: "critical",
+    summary: "Promoted from the correlation graph: these findings share a linking indicator.",
+  });
+});
+
+/* Graph and cases are only built when their view is first shown - the graph is
+ * an O(n^2) layout and there is no reason to pay for it on the overview. */
+const warmed = new Set();
+onView((id) => {
+  if (id === "graph" && !warmed.has("graph")) { warmed.add("graph"); mountGraph(); }
+  if (id === "graph") loadGraph();
+  if (id === "cases") refreshCases();
+});
 
 mountDrawer();
 wire();
@@ -1046,6 +1070,7 @@ syncControls();
 mountRouter();
 mountHunt();
 mountPalette();
+mountCases();
 refresh();
 loadFindings();
 loadIntel();
