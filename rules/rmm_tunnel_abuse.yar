@@ -15,6 +15,7 @@ rule RMM_Silent_Unattended_Install : suspicious
     meta:
         description = "Remote access tool installed silently with no operator present"
         severity = "high"
+        mitre = "T1219"
         author = "security-suite"
     strings:
         $t1 = "AnyDesk" nocase
@@ -40,6 +41,7 @@ rule RMM_Unattended_Access_Password : malware
     meta:
         description = "Remote access tool given a preset password for unattended entry"
         severity = "critical"
+        mitre = "T1219"
     strings:
         $a1 = "--set-password" nocase
         $a2 = "anydesk.exe --set-password" nocase
@@ -63,6 +65,7 @@ rule Outbound_Tunnel_Tool_Configured : suspicious
     meta:
         description = "Tunnelling client configured to expose a local service outbound"
         severity = "high"
+        mitre = "T1572"
     strings:
         $t1 = "ngrok" nocase
         $t2 = "cloudflared" nocase
@@ -86,6 +89,7 @@ rule RDP_Exposure_Tampering : suspicious
     meta:
         description = "Remote Desktop enabled and firewalled open from the command line"
         severity = "high"
+        mitre = "T1021.001,T1562.004"
     strings:
         $r1 = "fDenyTSConnections" nocase
         $r2 = "Terminal Server\\WinStations" nocase
@@ -105,6 +109,7 @@ rule Remote_Access_Service_Persistence : suspicious
     meta:
         description = "Remote access tooling wired to start automatically at boot"
         severity = "high"
+        mitre = "T1219,T1543.003"
     strings:
         $t1 = "AnyDesk" nocase
         $t2 = "ScreenConnect" nocase

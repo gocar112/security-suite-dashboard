@@ -8,6 +8,7 @@ rule LSASS_Memory_Dump_Indicators : malware
     meta:
         description = "Command or API pattern used to dump LSASS process memory"
         severity = "critical"
+        mitre = "T1003.001"
         author = "security-suite"
     strings:
         $a1 = "lsass.exe" nocase
@@ -24,6 +25,7 @@ rule Browser_Credential_Store_Access : suspicious
     meta:
         description = "Code reading a browser's saved-password or cookie database"
         severity = "high"
+        mitre = "T1555.003"
     strings:
         $p1 = "Login Data" nocase
         $p2 = "Cookies" nocase
@@ -40,6 +42,7 @@ rule Keylogger_API_Hooking : malware
     meta:
         description = "Keyboard hooking or polling APIs combined with local logging"
         severity = "high"
+        mitre = "T1056.001"
     strings:
         $h1 = "SetWindowsHookEx" nocase
         $h2 = "GetAsyncKeyState" nocase
@@ -56,6 +59,7 @@ rule SAM_Registry_Hive_Dump : malware
     meta:
         description = "Command sequence used to export the SAM/SYSTEM/SECURITY registry hives"
         severity = "critical"
+        mitre = "T1003.002"
     strings:
         $r1 = "reg save hklm\\sam" nocase
         $r2 = "reg save hklm\\system" nocase
@@ -70,6 +74,7 @@ rule Credential_Harvest_Clipboard_Config : suspicious
     meta:
         description = "Clipboard scraping or config-file scanning aimed at stored secrets"
         severity = "high"
+        mitre = "T1115,T1552.001"
     strings:
         $c1 = "GetClipboardData" nocase
         $c2 = "clipboard" nocase

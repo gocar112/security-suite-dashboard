@@ -9,6 +9,7 @@ rule PowerShell_Encoded_Command : suspicious
     meta:
         description = "PowerShell launched with a base64 encoded command block"
         severity = "high"
+        mitre = "T1059.001,T1027"
         author = "security-suite"
     strings:
         $ps = "powershell" nocase
@@ -25,6 +26,7 @@ rule PowerShell_Download_Cradle : suspicious
     meta:
         description = "Fileless download-and-run pattern"
         severity = "high"
+        mitre = "T1059.001,T1105"
     strings:
         $d1 = "DownloadString" nocase
         $d2 = "DownloadFile" nocase
@@ -42,6 +44,7 @@ rule Credential_Dumper_Indicators : malware
     meta:
         description = "Strings associated with LSASS credential dumping tools"
         severity = "critical"
+        mitre = "T1003.001"
     strings:
         $a1 = "sekurlsa::logonpasswords" nocase
         $a2 = "privilege::debug" nocase
@@ -57,6 +60,7 @@ rule Defense_Evasion_Commands : suspicious
     meta:
         description = "Shadow copy deletion or security tooling being disabled"
         severity = "critical"
+        mitre = "T1490,T1562.001"
     strings:
         $v1 = "vssadmin delete shadows" nocase
         $v2 = "wbadmin delete catalog" nocase
@@ -72,6 +76,7 @@ rule Ransom_Note_Template : malware
     meta:
         description = "Text that reads like a ransom note left beside encrypted files"
         severity = "critical"
+        mitre = "T1486"
     strings:
         $a1 = "your files have been encrypted" nocase
         $a2 = "all your files are encrypted" nocase
@@ -89,6 +94,7 @@ rule Suspicious_Double_Extension : suspicious
     meta:
         description = "Archive or document name masquerading with a double extension"
         severity = "medium"
+        mitre = "T1036.007"
     strings:
         $a1 = ".pdf.exe" nocase
         $a2 = ".doc.exe" nocase

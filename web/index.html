@@ -95,6 +95,13 @@
             <div class="hint">Observables pulled from files that tripped a rule. Values are defanged for safe pasting; the raw form is in the CSV export.</div>
           </div>
         </div>
+        <div class="panel attack-panel">
+          <div class="panel-head"><div><div class="section-kicker">12 / Tradecraft</div><h2>ATT&amp;CK coverage</h2></div><span class="tag" id="attack-note">mapping&hellip;</span></div>
+          <div class="body">
+            <div class="attack-legend"><span><i class="heat-key cold"></i> rules loaded, nothing seen</span><span><i class="heat-key warm"></i> detections observed</span><span class="faint">click a technique to filter the stream</span></div>
+            <div class="attack-matrix" id="attack-matrix"></div>
+          </div>
+        </div>
         <div class="lower-panels"><div class="panel compact-panel"><div class="panel-head"><div><div class="section-kicker">02 / Pulse</div><h2>Detection activity</h2></div><span class="tag">last 60 minutes</span></div><div class="body"><div class="bars" id="bars"></div><div class="axis"><span>60m ago</span><span>30m</span><span>now</span></div></div></div><div class="panel compact-panel"><div class="panel-head"><div><div class="section-kicker">03 / Wire</div><h2>Live feed</h2></div><span class="live-key"><i class="status-dot live"></i> live</span></div><div class="body"><div class="feed" id="feed"></div></div></div></div>
         <div class="panel remediation-panel">
           <div class="panel-head"><div><div class="section-kicker">11 / Remediate</div><h2>Containment</h2></div><span class="tag" id="rem-mode">manual</span></div>

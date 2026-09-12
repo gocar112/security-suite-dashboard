@@ -247,3 +247,82 @@ body.focus-mode .findings-panel { box-shadow: 0 0 0 1px rgba(71, 224, 192, .2), 
 .kev-due { color: var(--amber); font: 10px var(--mono); }
 .patch-link { display: block; font: 10px var(--mono); color: var(--blue);
   word-break: break-all; margin-bottom: 2px; }
+
+
+/* --------------------------------------------------------------- ATT&CK */
+/* The matrix is a horizontal scroller of tactic columns in kill-chain order,
+   so it reads left-to-right the way an intrusion unfolds. Cells are shaded by
+   detection volume via --heat; a covered-but-silent technique stays flat, which
+   is the distinction the whole panel exists to show. */
+.attack-legend {
+  display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  font-size: 12px; color: var(--dim); margin-bottom: 10px;
+}
+.heat-key { width: 11px; height: 11px; border-radius: 3px; display: inline-block;
+  vertical-align: -1px; margin-right: 5px; }
+.heat-key.cold { background: rgba(120, 150, 190, .16); border: 1px solid rgba(120,150,190,.3); }
+.heat-key.warm { background: var(--critical); }
+
+.attack-matrix {
+  display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px;
+  align-items: flex-start;
+}
+.attack-col {
+  flex: 0 0 152px; display: flex; flex-direction: column; gap: 5px;
+}
+.attack-col.empty { opacity: .45; }
+.attack-col-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 6px;
+  font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
+  padding: 0 2px 6px; border-bottom: 1px solid var(--line); margin-bottom: 2px;
+}
+.attack-col-head b { font-weight: 600; color: var(--text); }
+.attack-cell {
+  position: relative; text-align: left; cursor: pointer; font: inherit;
+  border: 1px solid rgba(120, 150, 190, .28);
+  background: rgba(120, 150, 190, .10);
+  border-radius: 6px; padding: 7px 8px; color: var(--dim);
+  display: flex; flex-direction: column; gap: 2px; transition: border-color .15s, transform .12s;
+}
+.attack-cell:hover { border-color: var(--teal); transform: translateY(-1px); }
+.attack-cell code { font-family: var(--mono); font-size: 11px; color: var(--teal); }
+.attack-cell span {
+  font-size: 11.5px; line-height: 1.25; color: var(--text);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.attack-cell.hot {
+  background: color-mix(in srgb, var(--critical) calc(var(--heat) * 55%), rgba(120,150,190,.10));
+  border-color: color-mix(in srgb, var(--critical) calc(var(--heat) * 80%), rgba(120,150,190,.28));
+}
+.attack-cell i {
+  position: absolute; top: 6px; right: 7px; font-style: normal;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+  background: var(--critical); color: #08111d;
+  border-radius: 9px; padding: 0 5px; line-height: 15px;
+}
+.attack-none { font-size: 11px; color: var(--dim); padding: 8px 2px; opacity: .7; }
+
+/* Technique chips beside a rule match, and the drawer summary block. */
+.attack-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.attack-chip {
+  font-family: var(--mono); font-size: 10.5px; text-decoration: none;
+  background: rgba(71, 224, 192, .12); color: var(--teal);
+  border: 1px solid rgba(71, 224, 192, .3); border-radius: 4px; padding: 0 5px;
+  line-height: 16px;
+}
+.attack-chip:hover { background: rgba(71, 224, 192, .22); }
+.attack-chip.unknown { color: var(--dim); border-color: var(--line); background: transparent; }
+.attack-summary { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.tactic-pill {
+  font-size: 11px; letter-spacing: .03em; text-transform: uppercase;
+  background: rgba(183, 156, 255, .14); color: var(--lilac);
+  border: 1px solid rgba(183, 156, 255, .3); border-radius: 999px; padding: 2px 9px;
+}
+.attack-tech-list { display: flex; flex-direction: column; gap: 4px; }
+.attack-tech {
+  display: flex; gap: 9px; align-items: baseline; text-decoration: none;
+  padding: 4px 7px; border-radius: 5px; background: rgba(120, 150, 190, .07);
+}
+.attack-tech:hover { background: rgba(120, 150, 190, .14); }
+.attack-tech code { font-family: var(--mono); font-size: 11px; color: var(--teal); }
+.attack-tech span { font-size: 12px; color: var(--text); }

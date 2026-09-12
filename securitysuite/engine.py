@@ -16,6 +16,7 @@ from pathlib import Path
 
 import yara
 
+from . import attack
 from .ioc import extract as extract_iocs
 from .store import SEVERITY_RANK, now_iso
 
@@ -150,6 +151,7 @@ class YaraEngine:
             #
             # yara-python has no rule introspection before a match, so parse the
             # declarations we care about out of the source text.
+            current: dict | None = None
             for line in text.splitlines():
                 stripped = line.strip()
                 if stripped.startswith("rule ") and "{" not in stripped[:5]:
@@ -157,7 +159,17 @@ class YaraEngine:
                     tags = []
                     if ":" in stripped:
                         tags = stripped.split(":", 1)[1].split("{")[0].split()
-                    index.append({"namespace": namespace, "rule": name, "tags": tags})
+                    current = {
+                        "namespace": namespace, "rule": name, "tags": tags,
+                        # Namespace default covers the generated ruleset, which
+                        # is not tagged rule by rule.
+                        "mitre": list(attack.NAMESPACE_DEFAULTS.get(namespace, ())),
+                    }
+                    index.append(current)
+                elif current is not None and stripped.startswith(("mitre ", "mitre=")):
+                    ids = attack.parse_ids(stripped.split("=", 1)[-1])
+                    if ids:
+                        current["mitre"] = ids
         return index
 
     def info(self) -> dict:
@@ -250,6 +262,10 @@ class YaraEngine:
                     "meta": meta,
                     "severity": self.severity_of(meta, tags),
                     "description": meta.get("description", ""),
+                    # Resolved here so a finding carries its ATT&CK context from
+                    # the moment it is written, rather than needing a second
+                    # lookup against the ruleset that may since have reloaded.
+                    "attack": attack.resolve(meta, match.namespace),
                     "strings": strings[:12],
                 }
             )

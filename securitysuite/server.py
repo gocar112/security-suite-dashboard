@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from . import attack
 from .ioc import summarise, to_csv
 from .store import now_iso
 
@@ -143,15 +144,35 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(payload, default=str).encode("utf-8"),
                    "application/json; charset=utf-8")
 
-    def _body(self) -> dict:
+    def _read_body_bytes(self) -> bytes:
+        """Consume the request body off the socket, bounded by MAX_BODY.
+
+        An oversized body is drained and discarded rather than left in the
+        buffer, so the connection stays usable and the caller still sees an
+        empty body.
+        """
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
-            return {}
-        if length <= 0 or length > MAX_BODY:
-            return {}
+            return b""
+        if length <= 0:
+            return b""
         try:
-            payload = json.loads(self.rfile.read(length) or b"{}")
+            raw = self.rfile.read(min(length, MAX_BODY))
+            remaining = length - MAX_BODY
+            while remaining > 0:                  # drain the excess
+                chunk = self.rfile.read(min(remaining, 65536))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        except (OSError, ValueError):
+            return b""
+        return b"" if length > MAX_BODY else raw
+
+    @staticmethod
+    def _parse_body(raw: bytes) -> dict:
+        try:
+            payload = json.loads(raw or b"{}")
         except (json.JSONDecodeError, UnicodeDecodeError):
             return {}
         # A JSON body may legally be a list, string or number, but every caller
@@ -250,6 +271,19 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif route == "/api/rules":
             self._json(self.ctx.engine.info())
+        elif route == "/api/attack/coverage":
+            # Rule index says what the ruleset *can* see; findings say what it
+            # *has* seen. The gap between them is the point of the view.
+            self._json(attack.coverage(
+                self.ctx.engine.info().get("rules", []),
+                self.ctx.store.events(
+                    limit=self._int_param(params.get("limit"), 2000, 1, 5000),
+                    event_type="yara_match")))
+        elif route == "/api/attack/techniques":
+            self._json({
+                "tactics": [{"id": t, "name": n} for t, n in attack.TACTICS],
+                "techniques": [attack.describe(t) for t in sorted(attack.TECHNIQUES)],
+            })
         elif route == "/api/telemetry":
             self._json(self.ctx.telemetry.recent(force=params.get("force") == "1"))
         elif route == "/api/intel":
@@ -367,6 +401,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
     def _handle_post(self):
+        # Read the body before anything can reject the request. This is a
+        # keep-alive correctness rail, not a convenience: protocol_version is
+        # HTTP/1.1, so an unread request body stays in the socket buffer and
+        # the server parses it as the next request line, resetting the
+        # connection instead of delivering the 403 it just wrote. Reading is
+        # not acting on it - every rail below still applies.
+        raw = self._read_body_bytes()
         if not self._host_allowed():
             self._json({"error": "host not allowed"}, 403)
             return
@@ -375,7 +416,7 @@ class Handler(BaseHTTPRequestHandler):
         if not allowed:
             self._json({"error": why}, 403)
             return
-        body = self._body()
+        body = self._parse_body(raw)
 
         if route == "/api/scan":
             target = str(body.get("path", "")).strip()
