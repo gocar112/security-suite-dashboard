@@ -9,6 +9,7 @@ import webbrowser
 from .config import load_config
 from .engine import YaraEngine
 from .nvd import NvdClient
+from .cases import CaseStore
 from .guidance import Guidance
 from .osv import OsvClient
 from .remediate import Remediator
@@ -71,13 +72,16 @@ def build(args):
     vt = VtClient(cfg.virustotal_api_key, cfg.vt_cache_dir)
     remediator = Remediator(cfg, store, nvd)
     guidance = Guidance(cfg.guidance_cache_dir, nvd)
+    case_store = CaseStore(cfg.cases_file)
     monitor = Monitor(cfg, engine, store, telemetry, remediator)
-    return cfg, engine, store, telemetry, monitor, nvd, osv, vt, remediator, guidance
+    return (cfg, engine, store, telemetry, monitor, nvd, osv, vt, remediator,
+            guidance, case_store)
 
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    cfg, engine, store, telemetry, monitor, nvd, osv, vt, remediator, guidance = build(args)
+    (cfg, engine, store, telemetry, monitor, nvd, osv, vt, remediator,
+     guidance, case_store) = build(args)
 
     info = engine.info()
     print(BANNER)
@@ -117,7 +121,7 @@ def main(argv=None) -> int:
     if not args.headless:
         try:
             httpd = serve(cfg, engine, store, telemetry, monitor, nvd, osv, vt,
-                          remediator, guidance)
+                          remediator, guidance, case_store)
         except OSError as exc:
             print("[-] Could not bind " + cfg.host + ":" + str(cfg.port) + " -> " + str(exc))
             return 1

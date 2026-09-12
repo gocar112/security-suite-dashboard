@@ -117,6 +117,33 @@
             <div class="attack-matrix" id="attack-matrix"></div>
           </div>
         </div>
+        <div class="panel graph-panel" data-views="graph">
+          <div class="panel-head"><div><div class="section-kicker">14 / Link analysis</div><h2>Correlation graph</h2></div><span class="tag" id="graph-note">building&hellip;</span></div>
+          <div class="body">
+            <div class="graph-legend">
+              <span><i class="dotkey finding"></i> finding</span>
+              <span><i class="dotkey indicator"></i> indicator</span>
+              <span><i class="dotkey rule"></i> rule</span>
+              <span class="faint">drag to move &middot; scroll to zoom &middot; click a finding to open it</span>
+              <button class="action-btn tiny" id="graph-relax">Relax layout</button>
+            </div>
+            <div class="graph-stage"><canvas id="graph-canvas"></canvas></div>
+            <div class="graph-detail" id="graph-detail"><span class="faint">Hover a node, click a finding to open it.</span></div>
+            <h3 class="sub-head">Campaigns</h3>
+            <div class="hint">Findings that share a linking indicator &mdash; a C2 address, a wallet, a hash &mdash; are one operation, not separate rows.</div>
+            <div class="campaign-list" id="campaign-list"></div>
+          </div>
+        </div>
+        <div class="panel cases-panel" data-views="cases">
+          <div class="panel-head"><div><div class="section-kicker">15 / Casework</div><h2>Cases</h2></div><span class="tag" id="case-note-count">0 cases</span></div>
+          <div class="body">
+            <div class="case-toolbar"><button class="action-btn" id="case-new">New case</button><span class="hint">A case groups findings with an owner, a status, notes, and a self-contained report you can hand to someone else.</span></div>
+            <div class="case-split">
+              <div class="case-list" id="case-list"></div>
+              <div class="case-detail" id="case-detail"><div class="faint">Select a case to see its evidence.</div></div>
+            </div>
+          </div>
+        </div>
         <div class="lower-panels" data-views="overview"><div class="panel compact-panel"><div class="panel-head"><div><div class="section-kicker">02 / Pulse</div><h2>Detection activity</h2></div><span class="tag">last 60 minutes</span></div><div class="body"><div class="bars" id="bars"></div><div class="axis"><span>60m ago</span><span>30m</span><span>now</span></div></div></div><div class="panel compact-panel"><div class="panel-head"><div><div class="section-kicker">03 / Wire</div><h2>Live feed</h2></div><span class="live-key"><i class="status-dot live"></i> live</span></div><div class="body"><div class="feed" id="feed"></div></div></div></div>
         <div class="panel remediation-panel" data-views="overview containment">
           <div class="panel-head"><div><div class="section-kicker">11 / Remediate</div><h2>Containment</h2></div><span class="tag" id="rem-mode">manual</span></div>

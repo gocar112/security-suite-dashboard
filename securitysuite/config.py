@@ -63,6 +63,10 @@ class Config:
     triage_file: str = str(ROOT / "data" / "triage.json")
     history_limit: int = 2000
     hunts_file: str = str(ROOT / "data" / "hunts.json")
+    cases_file: str = str(ROOT / "data" / "cases.json")
+    # Upper bound on graph payload size; the graph endpoint keeps the most
+    # connected nodes and drops edges whose endpoints did not survive.
+    graph_max_nodes: int = 600
 
     # --- server ---
     host: str = "127.0.0.1"
