@@ -930,6 +930,20 @@ function connectStream() {
     $("empty").style.display = "none";
     $("findings-count").textContent = state.findings.length + " shown";
   });
+  // The server closes the stream when this client fell so far behind that the
+  // store dropped it from the event bus. Without this the socket stayed open
+  // and kept delivering stats frames, so the dashboard read "live" while no
+  // longer receiving any findings. Resync from the API, then reconnect onto a
+  // fresh subscription.
+  source.addEventListener("overflow", () => {
+    $("stream-dot").className = "dot down";
+    $("stream-text").textContent = "resyncing";
+    toast("Event stream fell behind - resyncing", true);
+    source.close();
+    loadFindings();
+    refresh();
+    setTimeout(connectStream, 1000);
+  });
   source.onerror = () => {
     $("stream-dot").className = "dot down";
     $("stream-text").textContent = "reconnecting";

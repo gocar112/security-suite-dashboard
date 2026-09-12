@@ -9,6 +9,7 @@ import json
 import queue
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,6 +20,7 @@ from .ioc import summarise, to_csv
 from .store import now_iso
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
@@ -42,6 +44,11 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 }
 MAX_BODY = 64 * 1024
+# Cache the VirusTotal key reachability probe; it is a blocking network call
+# on a request path the dashboard polls.
+VT_STATUS_TTL = 120.0
+_VT_STATUS_CACHE: dict = {}
+_VT_STATUS_LOCK = threading.Lock()
 
 INTEL_SOURCES = (
     ("vuls", "https://github.com/future-architect/vuls", "bridge"),
@@ -79,9 +86,15 @@ class Handler(BaseHTTPRequestHandler):
     def ctx(self) -> Context:
         return self.server.ctx  # type: ignore[attr-defined]
 
-    def log_message(self, fmt, *args):  # quieter console
-        if "/api/stream" not in str(args):
-            return
+    def log_message(self, fmt, *args):
+        """Silence per-request logging; the dashboard is the console.
+
+        The previous body returned early when the path was *not* /api/stream
+        and fell through to nothing when it was, so it logged nothing either
+        way and the condition was dead. Errors still surface: _guard() prints
+        tracebacks and log_error() is untouched.
+        """
+        return
 
     # ----------------------------------------------------------- primitives
     def _host_allowed(self) -> bool:
@@ -131,17 +144,64 @@ class Handler(BaseHTTPRequestHandler):
                    "application/json; charset=utf-8")
 
     def _body(self) -> dict:
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return {}
         if length <= 0 or length > MAX_BODY:
             return {}
         try:
-            return json.loads(self.rfile.read(length) or b"{}")
+            payload = json.loads(self.rfile.read(length) or b"{}")
         except (json.JSONDecodeError, UnicodeDecodeError):
             return {}
+        # A JSON body may legally be a list, string or number, but every caller
+        # here indexes it like a mapping.
+        return payload if isinstance(payload, dict) else {}
+
+    @staticmethod
+    def _int_param(raw, default: int, low: int, high: int) -> int:
+        """Parse a caller-supplied integer, clamped, never raising.
+
+        These were bare ``int(...)`` calls. ``?limit=abc`` raised ValueError out
+        of the handler, which killed the connection without sending any
+        response at all - the browser saw a network error, not a 400 - and left
+        an unbounded ``limit`` free to serialise the entire ring buffer.
+        """
+        try:
+            value = int(str(raw).strip())
+        except (TypeError, ValueError):
+            return default
+        return max(low, min(high, value))
+
+    def _guard(self, handler) -> None:
+        """Run a route so no exception escapes as a silently dropped socket."""
+        try:
+            handler()
+        except (BrokenPipeError, ConnectionResetError):
+            pass                                  # client hung up; nothing to say
+        except Exception:
+            traceback.print_exc()
+            try:
+                self._json({"error": "internal error"}, 500)
+            except Exception:
+                pass                              # response already began
 
     def _static(self, name: str):
-        target = (WEB_DIR / name).resolve()
-        if not str(target).startswith(str(WEB_DIR.resolve())) or not target.is_file():
+        web_root = WEB_DIR.resolve()
+        target = (web_root / name).resolve()
+        # is_relative_to, not startswith: a sibling directory named "web-evil"
+        # satisfies a string prefix test against "web".
+        if not target.is_relative_to(web_root) or not target.is_file():
+            self._json({"error": "not found"}, 404)
+            return
+        ctype = CONTENT_TYPES.get(target.suffix, "application/octet-stream")
+        self._send(200, target.read_bytes(), ctype)
+
+    def _asset(self, name: str):
+        """Serve a file from assets/ (the app icon lives there, not in web/)."""
+        root = ASSET_DIR.resolve()
+        target = (root / name).resolve()
+        if not target.is_relative_to(root) or not target.is_file():
             self._json({"error": "not found"}, 404)
             return
         ctype = CONTENT_TYPES.get(target.suffix, "application/octet-stream")
@@ -149,6 +209,15 @@ class Handler(BaseHTTPRequestHandler):
 
     # --------------------------------------------------------------- routes
     def do_GET(self):
+        self._guard(self._handle_get)
+
+    def do_HEAD(self):
+        self._guard(self._handle_get)
+
+    def do_POST(self):
+        self._guard(self._handle_post)
+
+    def _handle_get(self):
         if not self._host_allowed():
             self._json({"error": "host not allowed"}, 403)
             return
@@ -158,13 +227,15 @@ class Handler(BaseHTTPRequestHandler):
 
         if route == "/":
             self._static("index.html")
-        elif route in ("/app.js", "/styles.css", "/favicon.ico"):
+        elif route in ("/app.js", "/styles.css"):
             self._static(route.lstrip("/"))
+        elif route == "/favicon.ico":
+            self._asset("securitysuite.ico")
         elif route == "/api/state":
             self._json(self._state())
         elif route == "/api/findings":
             findings = self.ctx.store.events(
-                limit=int(params.get("limit", 200)),
+                limit=self._int_param(params.get("limit"), 200, 1, 2000),
                 severity=params.get("severity"),
                 event_type=params.get("type"),
                 status=params.get("status"),
@@ -194,7 +265,7 @@ class Handler(BaseHTTPRequestHandler):
                 data["indicators"] = [
                     i for i in data["indicators"]
                     if i["type"] != "ipv4" or i.get("scope") == "external"]
-            limit = int(params.get("limit", 300))
+            limit = self._int_param(params.get("limit"), 300, 1, 2000)
             data["shown"] = min(limit, len(data["indicators"]))
             data["indicators"] = data["indicators"][:limit]
             data["source_findings"] = len(events)
@@ -217,7 +288,7 @@ class Handler(BaseHTTPRequestHandler):
             if not finding_id:
                 self._json({"error": "id is required"}, 400)
                 return
-            finding = self.ctx.remediator._find(finding_id) if self.ctx.remediator else None
+            finding = self.ctx.store.find(finding_id)
             if finding is None:
                 self._json({"error": "unknown finding"}, 404)
                 return
@@ -269,7 +340,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "nvd adapter not enabled"}, 503)
                 return
             self._json({"cves": self.ctx.nvd.cached_records(
-                limit=int(params.get("limit", 100)),
+                limit=self._int_param(params.get("limit"), 100, 1, 1000),
                 severity=params.get("severity", ""))})
         elif route == "/api/nvd/cve":
             if self.ctx.nvd is None:
@@ -288,15 +359,14 @@ class Handler(BaseHTTPRequestHandler):
             if not query:
                 self._json({"error": "q is required"}, 400)
                 return
-            self._json(self.ctx.nvd.search(query, int(params.get("limit", 20))))
+            self._json(self.ctx.nvd.search(
+                query, self._int_param(params.get("limit"), 20, 1, 200)))
         elif route == "/api/stream":
             self._stream()
         else:
             self._json({"error": "not found"}, 404)
 
-    do_HEAD = do_GET
-
-    def do_POST(self):
+    def _handle_post(self):
         if not self._host_allowed():
             self._json({"error": "host not allowed"}, 403)
             return
@@ -352,7 +422,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.ctx.nvd is None:
                 self._json({"error": "nvd adapter not enabled"}, 503)
                 return
-            days = int(body.get("days") or getattr(self.ctx.cfg, "nvd_sync_days", 3))
+            days = self._int_param(body.get("days"),
+                                   getattr(self.ctx.cfg, "nvd_sync_days", 3), 1, 120)
             result = self.ctx.nvd.sync(days, getattr(self.ctx.cfg, "nvd_max_records", 4000))
             self.ctx.store.broadcast({
                 "event_type": "monitor", "timestamp": now_iso(),
@@ -395,7 +466,7 @@ class Handler(BaseHTTPRequestHandler):
                 action=str(body.get("action", "quarantine")),
                 confirm=bool(body.get("confirm")),
                 dry_run=body.get("dry_run", True) is not False,
-                limit=int(body.get("limit", 50)),
+                limit=self._int_param(body.get("limit"), 50, 1, 500),
             )
             self._json(result)
         elif route == "/api/triage":
@@ -418,6 +489,9 @@ class Handler(BaseHTTPRequestHandler):
             "stats": self.ctx.store.stats(),
             "monitor": self.ctx.monitor.status(),
             "engine": self.ctx.engine.info(),
+            "stream": {
+                "dropped_subscribers": getattr(self.ctx.store, "dropped_subscribers", 0),
+            },
             "telemetry": self.ctx.telemetry.recent(),
             "config": {
                 "watch_paths": cfg.watch_paths,
@@ -434,22 +508,38 @@ class Handler(BaseHTTPRequestHandler):
             return {"source": "nvd", "status": "disabled"}
         return self.ctx.nvd.status()
 
+    def _vt_key_status(self, vt_key: str) -> str:
+        """Reachability of the configured VirusTotal key, cached.
+
+        This is a blocking outbound request. Uncached, every /api/intel GET
+        parked a server thread on it for up to two seconds, and the dashboard
+        polls that endpoint.
+        """
+        now = time.time()
+        with _VT_STATUS_LOCK:
+            cached = _VT_STATUS_CACHE.get(vt_key)
+            if cached and now - cached[0] < VT_STATUS_TTL:
+                return cached[1]
+        request = urllib.request.Request(
+            "https://www.virustotal.com/api/v3/users/me",
+            headers={"x-apikey": vt_key, "Accept": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=2) as response:
+                status = "online" if response.status == 200 else "configured"
+        except urllib.error.HTTPError as exc:
+            status = ("rejected" if exc.code in (401, 403)
+                      else "rate limited" if exc.code == 429 else "configured")
+        except (urllib.error.URLError, TimeoutError, OSError):
+            status = "offline"
+        with _VT_STATUS_LOCK:
+            _VT_STATUS_CACHE[vt_key] = (now, status)
+        return status
+
     def _intel(self) -> dict:
         """Return source adapters without ever returning credentials to clients."""
         vt_key = str(getattr(self.ctx.cfg, "virustotal_api_key", "") or "").strip()
-        vt_status = "optional"
-        if vt_key:
-            request = urllib.request.Request(
-                "https://www.virustotal.com/api/v3/users/me",
-                headers={"x-apikey": vt_key, "Accept": "application/json"},
-            )
-            try:
-                with urllib.request.urlopen(request, timeout=2) as response:
-                    vt_status = "online" if response.status == 200 else "configured"
-            except urllib.error.HTTPError as exc:
-                vt_status = "rejected" if exc.code in (401, 403) else "rate limited" if exc.code == 429 else "configured"
-            except (urllib.error.URLError, TimeoutError, OSError):
-                vt_status = "offline"
+        vt_status = self._vt_key_status(vt_key) if vt_key else "optional"
         nvd_state = self._nvd_status()
         nvd_cached = int(nvd_state.get("cached") or 0)
         nvd_status = "offline" if nvd_state.get("last_error") else (
@@ -496,6 +586,11 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------------ SSE
     def _stream(self):
+        if self.command == "HEAD":
+            # do_HEAD shares this router; without this a HEAD /api/stream would
+            # enter the loop below and hold a thread open forever.
+            self._send(200, b"", "text/event-stream")
+            return
         sub = self.ctx.store.subscribe()
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -509,6 +604,13 @@ class Handler(BaseHTTPRequestHandler):
             while True:
                 try:
                     event = sub.get(timeout=1.0)
+                    if event.get("__stream__") == "overflow":
+                        # We fell too far behind and the store detached us.
+                        # Close so EventSource reconnects onto a fresh
+                        # subscription; staying open would mean showing a
+                        # "live" dashboard that receives nothing.
+                        self._sse("overflow", {"reason": "client fell behind"})
+                        break
                     self._sse("event", event)
                 except queue.Empty:
                     pass

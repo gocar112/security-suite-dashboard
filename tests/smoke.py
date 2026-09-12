@@ -6,6 +6,7 @@ remediation rails still hold on a clean checkout.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -101,10 +102,98 @@ def test_remediation_self_protection_and_delete() -> None:
         assert_true((ROOT / "README.md").exists(), "self-protection failed; README was deleted")
 
 
+def test_clear_preserves_audit_trail_beyond_memory_window() -> None:
+    """store.clear() must not lose remediation records older than the deque.
+
+    The audit trail used to be rebuilt from the in-memory ring buffer, so a
+    remediation older than history_limit events was erased from findings.ndjson
+    by a dashboard "Clear lines" click - the exact loss clear()'s own docstring
+    promises not to cause.
+    """
+    with tempfile.TemporaryDirectory(prefix="ss_clear_") as raw:
+        tmp = Path(raw)
+        log = tmp / "findings.ndjson"
+        store = EventStore(str(log), str(tmp / "triage.json"), history_limit=50)
+        store.add({"event_type": "remediation", "action": "delete",
+                   "file_path": "/evil/payload.exe", "marker": "AUDIT_KEEP"})
+        for i in range(200):                       # push it out of memory
+            store.add({"event_type": "scan", "file_path": "/tmp/f%d" % i})
+
+        assert_true("AUDIT_KEEP" in log.read_text(encoding="utf-8"),
+                    "audit record missing before clear")
+        result = store.clear()
+        assert_true("AUDIT_KEEP" in log.read_text(encoding="utf-8"),
+                    "clear() destroyed a remediation record older than the memory window")
+        assert_true(result["audit_retained"] == 1,
+                    "clear() misreported how many audit records it kept")
+
+
+def test_overflowed_subscriber_is_notified() -> None:
+    """A stream client that falls behind must be told, not silently detached.
+
+    The store dropped a full subscriber from the bus while its SSE response
+    stayed open and kept emitting stats frames, so the dashboard showed "live"
+    and a green dot while receiving no findings at all.
+    """
+    with tempfile.TemporaryDirectory(prefix="ss_sse_") as raw:
+        tmp = Path(raw)
+        store = EventStore(str(tmp / "f.ndjson"), str(tmp / "t.json"), history_limit=5000)
+        sub = store.subscribe()
+        for i in range(sub.maxsize + 10):          # nobody drains it
+            store.add({"event_type": "yara_match", "severity": "critical",
+                       "file_path": "/evil/%d.exe" % i, "matches": []})
+
+        drained = []
+        while not sub.empty():
+            drained.append(sub.get_nowait())
+        assert_true(any(m.get("__stream__") == "overflow" for m in drained),
+                    "overflowed client was detached with no notice")
+        assert_true(drained[-1].get("__stream__") == "overflow",
+                    "overflow notice must be the final message on the queue")
+        assert_true(store.dropped_subscribers == 1,
+                    "dropped subscriber was not counted")
+
+
+def test_triage_survives_memory_window() -> None:
+    """A finding on disk but out of memory is still triageable, not a 404."""
+    with tempfile.TemporaryDirectory(prefix="ss_triage_") as raw:
+        tmp = Path(raw)
+        store = EventStore(str(tmp / "f.ndjson"), str(tmp / "t.json"), history_limit=20)
+        first = store.add({"event_type": "yara_match", "severity": "critical",
+                           "file_path": "/evil/first.exe", "matches": []})
+        for i in range(60):
+            store.add({"event_type": "scan", "file_path": "/tmp/f%d" % i})
+        updated = store.set_status(first["id"], "resolved", "handled")
+        assert_true(updated is not None,
+                    "triage on a finding older than the memory window returned 404")
+        assert_true(updated["status"] == "resolved", "triage status not applied")
+
+
+def test_ids_are_stable_across_reload() -> None:
+    """Log lines without an id must get the same id on every restart."""
+    with tempfile.TemporaryDirectory(prefix="ss_ids_") as raw:
+        tmp = Path(raw)
+        log = tmp / "f.ndjson"
+        log.write_text(json.dumps({
+            "event_type": "yara_match", "severity": "critical",
+            "file_path": "/evil/x.exe", "timestamp": "2026-09-12T10:00:00"})
+            + chr(10),
+            encoding="utf-8")
+        first = list(EventStore(str(log), str(tmp / "t.json"), 50)._events)[0]["id"]
+        second = list(EventStore(str(log), str(tmp / "t.json"), 50)._events)[0]["id"]
+        assert_true(first == second,
+                    "id regenerated on reload; triage state would be orphaned")
+
+
+
 def main() -> int:
     test_ruleset()
     test_ioc_extraction()
     test_remediation_self_protection_and_delete()
+    test_clear_preserves_audit_trail_beyond_memory_window()
+    test_overflowed_subscriber_is_notified()
+    test_triage_survives_memory_window()
+    test_ids_are_stable_across_reload()
     print("CI smoke tests passed")
     return 0
 

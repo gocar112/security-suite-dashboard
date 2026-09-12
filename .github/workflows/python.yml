@@ -47,6 +47,10 @@ jobs:
         shell: pwsh
         run: python tests/smoke.py
 
+      - name: Run API tests
+        shell: pwsh
+        run: python tests/test_api.py
+
       - name: Generate database summary
         shell: pwsh
         run: python tools/summarize_database.py --output docs/database-summary.md

@@ -1,6 +1,7 @@
 """Append-only NDJSON event store with an in-memory index and a pub/sub bus."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import queue
@@ -13,6 +14,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SEVERITIES = ("critical", "high", "medium", "low", "info")
+# Pushed to a subscriber that fell too far behind, so the stream can close and
+# the browser's EventSource reconnects instead of going quietly deaf.
+STREAM_OVERFLOW = {"__stream__": "overflow"}
 SEVERITY_RANK = {name: i for i, name in enumerate(SEVERITIES)}
 
 
@@ -22,6 +26,21 @@ def now_iso() -> str:
 
 def new_id() -> str:
     return uuid.uuid4().hex[:12]
+
+
+def stable_id(event: dict) -> str:
+    """Deterministic id for a log line that was written without one.
+
+    ``new_id()`` is random, so replaying the same log twice used to produce a
+    different id each time and any triage recorded against the old id was
+    orphaned on restart. Deriving it from the event's own content keeps it
+    stable across reloads.
+    """
+    basis = json.dumps(
+        {key: event.get(key)
+         for key in ("timestamp", "event_type", "file_path", "sha256")},
+        sort_keys=True, default=str)
+    return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:12]
 
 
 class EventStore:
@@ -36,6 +55,7 @@ class EventStore:
         self._subscribers: list[queue.Queue] = []
         self._triage: dict[str, dict] = {}
         self.counters = Counter()
+        self.dropped_subscribers = 0
         self.started_at = time.time()
         os.makedirs(self.path.parent, exist_ok=True)
         self._load_triage()
@@ -66,7 +86,10 @@ class EventStore:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            event.setdefault("id", new_id())
+            # A line written without an id must get the *same* id on every
+            # restart, or triage recorded against it can never reattach.
+            if not event.get("id"):
+                event["id"] = stable_id(event)
             self._apply_triage(event)
             self._events.append(event)
             self._count(event)
@@ -108,7 +131,55 @@ class EventStore:
                     dead.append(sub)
             for sub in dead:
                 self._subscribers.remove(sub)
+                self.dropped_subscribers += 1
+                # A client that fell behind used to be dropped from the bus in
+                # silence: its stream stayed open, still receiving periodic
+                # stats frames, so the dashboard kept showing "live" while
+                # receiving no findings at all. Tell it instead. The queue is
+                # full by definition, so make room for the notice first.
+                try:
+                    sub.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    sub.put_nowait(dict(STREAM_OVERFLOW))
+                except queue.Full:
+                    pass
         return event
+
+    def find(self, event_id: str) -> dict | None:
+        """Public lookup by id: memory window first, then the log on disk.
+
+        Callers outside the store used to reach into ``Remediator._find``,
+        which tied unrelated features (guidance) to whether remediation
+        happened to be enabled.
+        """
+        if not event_id:
+            return None
+        with self._lock:
+            for event in self._events:
+                if event.get("id") == event_id:
+                    return dict(event)
+        return self._find_on_disk(event_id)
+
+    def _find_on_disk(self, event_id: str) -> dict | None:
+        """Locate a finding that has aged out of the in-memory window."""
+        if not event_id or not self.path.exists():
+            return None
+        try:
+            with self.path.open("r", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    if event_id not in line:      # cheap reject before parsing
+                        continue
+                    try:
+                        event = json.loads(line.strip())
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("id") == event_id:
+                        return event
+        except OSError:
+            return None
+        return None
 
     def set_status(self, event_id: str, status: str, note: str = "") -> dict | None:
         with self._lock:
@@ -117,6 +188,12 @@ class EventStore:
                 if event.get("id") == event_id:
                     target = event
                     break
+            if target is None:
+                # Older than the ring buffer but still on disk, and still a
+                # real finding an analyst may need to triage. Triage state is
+                # kept in its own overlay file, so recording it does not
+                # require the event to be resident in memory.
+                target = self._find_on_disk(event_id)
             if target is None:
                 return None
             target["status"] = status
@@ -135,6 +212,38 @@ class EventStore:
                 print("[-] Could not persist triage state: " + str(exc))
             return dict(target)
 
+    def _audit_records_on_disk(self) -> tuple[bool, list[dict]]:
+        """Every remediation record in the log, read from disk.
+
+        Audit retention must never be derived from ``self._events``: that deque
+        holds only the last ``history_limit`` events, so a remediation older
+        than the window would be silently dropped when the log is rewritten -
+        the exact loss ``clear()`` promises not to cause.
+
+        Returns ``(ok, records)``. ``ok`` is False when the log exists but could
+        not be read; the caller must then refuse to rewrite it, because an
+        unreadable log is not the same as an empty one.
+        """
+        if not self.path.exists():
+            return True, []
+        kept: list[dict] = []
+        try:
+            with self.path.open("r", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("event_type") == "remediation":
+                        kept.append(event)
+        except OSError as exc:
+            print("[-] Could not read audit records before clear: " + str(exc))
+            return False, []
+        return True, kept
+
     def clear(self, backup: bool = True) -> dict:
         """Clear detection noise from the dashboard.
 
@@ -152,8 +261,17 @@ class EventStore:
         with self._lock:
             event_count = len(self._events)
             triage_count = len(self._triage)
-            kept = [e for e in self._events
-                    if e.get("event_type") == "remediation"]
+            # Read the audit trail from disk, not from the memory window.
+            readable, kept = self._audit_records_on_disk()
+            if not readable:
+                return {
+                    "cleared": False,
+                    "error": "audit log unreadable; refusing to rewrite it",
+                    "events": event_count,
+                    "triage": triage_count,
+                    "audit_retained": 0,
+                    "backup_dir": "",
+                }
             if backup:
                 stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
                 backup_path = self.path.parent / "log-backups" / stamp
@@ -169,13 +287,18 @@ class EventStore:
             self._events.clear()
             self._triage.clear()
             self.counters.clear()
-            for event in kept:            # audit records survive the clear
+            # The deque is bounded, so only the most recent audit records can
+            # be held in memory; all of them are still written back to disk.
+            for event in kept[-self.history_limit:]:
                 self._events.append(event)
                 self._count(event)
             try:
-                self.path.write_text(
-                    "".join(json.dumps(e, default=str) + chr(10) for e in kept),
-                    encoding="utf-8")
+                # Write to a sibling then replace, so an interrupted clear
+                # cannot leave the audit trail half-written or empty.
+                payload = "".join(json.dumps(e, default=str) + chr(10) for e in kept)
+                tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
+                tmp_path.write_text(payload, encoding="utf-8")
+                os.replace(tmp_path, self.path)
                 self.triage_path.write_text("{}", encoding="utf-8")
             except OSError as exc:
                 print("[-] Could not clear finding state: " + str(exc))
