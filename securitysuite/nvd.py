@@ -246,7 +246,7 @@ class NvdClient:
             "truncated": len(records) < total,
             "pages_fetched": pages,
             "by_severity": severities,
-            "api_key": bool(self.api_key),
+            "last_sync_used_key": bool(self.api_key),
             "elapsed_seconds": round((_now() - started).total_seconds(), 1),
         }
         try:
@@ -285,7 +285,13 @@ class NvdClient:
                 index = json.loads(self.index_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 index = {}
+        # Spread the cached index FIRST so live state always wins. The index
+        # records what was true at the last sync; it must never shadow what is
+        # true now - a stale "api_key": false there once made a configured key
+        # report as absent.
+        index.pop("api_key", None)          # superseded by last_sync_used_key
         return {
+            **index,
             "source": "nvd",
             "base_url": BASE_URL,
             "cache_dir": str(self.cache_dir),
@@ -295,5 +301,4 @@ class NvdClient:
             "syncing": self._syncing,
             "lookups_cached": len(list(self.lookups_dir.glob("*.json"))),
             "last_error": self.last_error,
-            **index,
         }
