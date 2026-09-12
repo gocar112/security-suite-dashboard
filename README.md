@@ -36,7 +36,7 @@ pip install -r requirements.txt   # only if you move this to another machine
 ```
 uploads/  ──▶  settle check  ──▶  YARA engine  ──▶  hit?  ──▶  auth telemetry
 (watched)      (file stopped        (in-memory,              (last 5 min,
-                changing)            13 rules)                real timestamps)
+                changing)            73 rules)                real timestamps)
                                                                     │
                                         data/findings.ndjson  ◀─────┤
                                         SSE ──▶ dashboard     ◀─────┘
@@ -56,6 +56,8 @@ uploads/  ──▶  settle check  ──▶  YARA engine  ──▶  hit?  ─�
   ClawFire, and an optional server-side VirusTotal adapter
 - Posture dial, source health cards, focus mode, operator sensitivity control,
   and an opt-in Web Audio alert tone for new detections
+- Extracted-indicator panel: observables pulled from every detected file,
+  defanged, ranked by how many files they appear in, with CSV export
 
 ---
 
@@ -75,6 +77,7 @@ securitysuite/
   nvd.py                NVD CVE API 2.0 client + local cache
   osv.py                OSV.dev lookup by commit / package / purl
   virustotal.py         hash reputation + Enterprise capability probe
+  ioc.py                observable extraction (defanged) from matched files
 assets/securitysuite.ico  desktop shortcut icon
 book/                   the field guide (pdf + docx)
 nvds/                   NVD cache (contents gitignored)
@@ -285,10 +288,52 @@ $lnk.Save()
 ## The book
 
 `book/Detection-Engineering-in-Practice.{pdf,docx}` is a field guide to SOC
-detection engineering that uses this repository as its running case study —
-YARA rule design, the race conditions in the file watcher, telemetry
-correlation, triage economics, and the intel adapters above. Second edition,
-~18,000 words.
+detection engineering that uses this repository as its running case study.
+Twelve chapters and four appendices covering YARA rule design, the race
+conditions in the file watcher, telemetry correlation, triage economics, the
+intel adapters, and indicator extraction — including the bugs found while
+building it. **Third edition, 82 pages / ~21,500 words.**
+
+Chapter 9 works through a real false positive end to end: scanning the book's
+own manuscript tripped twelve rules, eleven correctly (it quotes IOC strings)
+and one because a Sunday school reading list contains the word *Exodus*.
+
+---
+
+## Extracted indicators
+
+A YARA match tells you a file is bad. It does not tell you what to hunt for
+next — and the C2 address, exfil domain, and ransom wallet are usually sitting
+in the same bytes. Every file that trips a rule is mined for observables:
+
+| Category | Types |
+| --- | --- |
+| Network | URLs, domains, IPv4, `.onion` |
+| Financial | Bitcoin, Ethereum, Monero |
+| Contact | Email addresses |
+| Host | Registry keys, Windows paths |
+| Reference | CVE ids, embedded MD5 / SHA-256 |
+
+```bash
+# Everything, ranked by how many distinct files it appears in
+curl -s http://127.0.0.1:8787/api/iocs | jq '.indicators[] | {type, defanged, file_count}'
+
+# External addresses only
+curl -s "http://127.0.0.1:8787/api/iocs?scope=external&type=ipv4"
+
+# Hand it to the SIEM
+curl -s "http://127.0.0.1:8787/api/iocs?format=csv" -o iocs.csv
+```
+
+**Everything is defanged on output** — `hxxp://185[.]220[.]101[.]47/gate[.]php`.
+Indicators get pasted into tickets and chat clients that auto-link URLs, and a
+live C2 link in an incident ticket eventually gets clicked. The raw value is
+kept alongside and both appear in the CSV.
+
+Extraction runs only on files that matched a rule; a clean scan's observables
+are not interesting and thirteen regexes over every file would dominate the
+scan budget. Private and loopback addresses are kept and labelled rather than
+dropped — `10.0.0.5` in a lateral movement script is the finding.
 
 ---
 
