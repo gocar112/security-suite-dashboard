@@ -26,6 +26,21 @@ CONTENT_TYPES = {
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
 }
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "connect-src 'self'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'none'; "
+        "frame-ancestors 'none'"
+    ),
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
 MAX_BODY = 64 * 1024
 
 INTEL_SOURCES = (
@@ -103,6 +118,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Cache-Control", "no-store")
+        for key, value in SECURITY_HEADERS.items():
+            self.send_header(key, value)
         for key, value in (extra or {}).items():
             self.send_header(key, value)
         self.end_headers()
