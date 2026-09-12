@@ -41,7 +41,9 @@ jobs:
 
       - name: Validate dashboard JavaScript
         shell: pwsh
-        run: node --check web/app.js
+        run: |
+          node --check web/app.js
+          Get-ChildItem web/js/*.js | ForEach-Object { node --check $_.FullName }
 
       - name: Run smoke tests
         shell: pwsh
@@ -50,6 +52,10 @@ jobs:
       - name: Run API tests
         shell: pwsh
         run: python tests/test_api.py
+
+      - name: Run hunt query tests
+        shell: pwsh
+        run: python tests/test_hunt.py
 
       - name: Generate database summary
         shell: pwsh

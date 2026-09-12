@@ -21,6 +21,12 @@
 }
 
 * { box-sizing: border-box; }
+
+/* The router toggles el.hidden, but a class here that sets display (grid,
+   flex) outranks the user-agent's [hidden]{display:none} and the block stays
+   on screen. This has to win outright. */
+[hidden] { display: none !important; }
+
 html { background: var(--ink); }
 body {
   margin: 0;
@@ -326,3 +332,115 @@ body.focus-mode .findings-panel { box-shadow: 0 0 0 1px rgba(71, 224, 192, .2), 
 .attack-tech:hover { background: rgba(120, 150, 190, .14); }
 .attack-tech code { font-family: var(--mono); font-size: 11px; color: var(--teal); }
 .attack-tech span { font-size: 12px; color: var(--text); }
+
+/* ------------------------------------------------------ view rail + router */
+.view-rail { display: flex; gap: 2px; align-items: center; flex-wrap: wrap; }
+.rail-item {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: 7px;
+  color: var(--dim); font: inherit; font-size: 12.5px; padding: 5px 10px;
+  transition: color .14s, background .14s, border-color .14s;
+}
+.rail-item:hover { color: var(--text); background: rgba(120, 150, 190, .09); }
+.rail-item.active {
+  color: var(--teal); background: rgba(71, 224, 192, .10);
+  border-color: rgba(71, 224, 192, .32);
+}
+.rail-glyph { font-size: 11px; opacity: .85; }
+@media (max-width: 1180px) { .rail-label { display: none; } .rail-item { padding: 5px 8px; } }
+
+/* ----------------------------------------------------------------- hunt */
+.hunt-bar { display: flex; gap: 8px; margin-bottom: 9px; }
+.hunt-bar input {
+  flex: 1; font-family: var(--mono); font-size: 13px;
+  background: rgba(6, 14, 24, .7); border: 1px solid var(--line);
+  border-radius: 7px; padding: 9px 11px; color: var(--text);
+}
+.hunt-bar input:focus { outline: none; border-color: var(--teal); }
+.action-btn.ghost { background: transparent; color: var(--dim); }
+.hunt-help { font-size: 11.5px; color: var(--dim); line-height: 1.7; margin-bottom: 10px; }
+.hunt-help code {
+  font-family: var(--mono); font-size: 11px; color: var(--teal);
+  background: rgba(71, 224, 192, .08); border-radius: 3px; padding: 1px 4px;
+}
+.hunt-status.ok { color: var(--ok); }
+.hunt-status.bad { color: var(--critical); }
+
+.hunt-saved-row { display: flex; gap: 9px; align-items: baseline; margin-bottom: 9px; }
+.hunt-saved-label {
+  font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
+}
+#hunt-saved { display: flex; gap: 6px; flex-wrap: wrap; }
+.saved-hunt {
+  display: inline-flex; align-items: stretch;
+  border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+}
+.saved-hunt button {
+  background: transparent; border: 0; cursor: pointer; font: inherit;
+  font-size: 12px; color: var(--text); padding: 3px 9px;
+}
+.saved-hunt button:hover { background: rgba(120, 150, 190, .12); }
+.saved-hunt i {
+  font-style: normal; cursor: pointer; color: var(--dim); padding: 3px 7px;
+  border-left: 1px solid var(--line);
+}
+.saved-hunt i:hover { color: var(--critical); background: rgba(255, 106, 122, .1); }
+
+.hunt-examples {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 6px; margin-bottom: 14px;
+}
+.hunt-example {
+  text-align: left; cursor: pointer; font: inherit; display: block;
+  background: rgba(120, 150, 190, .06); border: 1px solid var(--line);
+  border-radius: 7px; padding: 7px 9px;
+}
+.hunt-example:hover { border-color: var(--teal); background: rgba(71, 224, 192, .07); }
+.hunt-example code {
+  display: block; font-family: var(--mono); font-size: 11.5px; color: var(--teal);
+  margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hunt-example span { font-size: 11.5px; color: var(--dim); }
+.rule-chip {
+  font-family: var(--mono); font-size: 11px; color: var(--text);
+  background: rgba(120, 150, 190, .1); border-radius: 4px;
+  padding: 1px 5px; margin-right: 4px; display: inline-block;
+}
+
+/* ------------------------------------------------------- command palette */
+.palette-overlay {
+  position: fixed; inset: 0; z-index: 120; display: flex;
+  justify-content: center; align-items: flex-start; padding-top: 14vh;
+  background: rgba(3, 8, 15, .62); backdrop-filter: blur(3px);
+}
+.palette {
+  width: min(560px, 92vw); background: var(--ink-2);
+  border: 1px solid rgba(71, 224, 192, .26); border-radius: 12px;
+  box-shadow: 0 26px 70px rgba(0, 0, 0, .55); overflow: hidden;
+}
+.palette input {
+  width: 100%; background: transparent; border: 0;
+  border-bottom: 1px solid var(--line); color: var(--text);
+  font: inherit; font-size: 15px; padding: 15px 17px;
+}
+.palette input:focus { outline: none; }
+.palette-list { list-style: none; margin: 0; padding: 6px; max-height: 46vh; overflow-y: auto; }
+.palette-item {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 8px 11px; border-radius: 7px; cursor: pointer; font-size: 13.5px;
+}
+.palette-item.active { background: rgba(71, 224, 192, .13); color: var(--teal); }
+.palette-item:hover { background: rgba(120, 150, 190, .1); }
+.palette-item i {
+  font-style: normal; font-family: var(--mono); font-size: 10.5px;
+  color: var(--dim); text-transform: uppercase; letter-spacing: .05em;
+}
+.palette-empty { padding: 13px; color: var(--dim); font-size: 13px; }
+.palette-foot {
+  border-top: 1px solid var(--line); padding: 7px 13px;
+  font-size: 11px; color: var(--dim); display: flex; gap: 6px; align-items: center;
+}
+.palette-foot kbd {
+  font-family: var(--mono); font-size: 10px; background: rgba(120, 150, 190, .13);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px;
+}

@@ -1,106 +1,14 @@
-/* Security Suite dashboard - vanilla JS, fed by /api/* and an SSE stream. */
-"use strict";
-
-const $ = (id) => document.getElementById(id);
-const SEVS = ["critical", "high", "medium", "low", "info"];
-const SEV_COLOR = {
-  critical: "var(--critical)", high: "var(--high)", medium: "var(--medium)",
-  low: "var(--low)", info: "var(--info)",
-};
-
-let state = {
-  findings: [], selected: null, paused: false, lastStats: null, feedSeeded: false,
-  sensitivity: Number(localStorage.getItem("suite-sensitivity") || 72),
-  focusMode: localStorage.getItem("suite-focus") === "true",
-  toneEnabled: localStorage.getItem("suite-tone") === "true",
-  audioContext: null,
-};
-
-/* ------------------------------------------------------------------ utils */
-function esc(value) {
-  return String(value === undefined || value === null ? "" : value)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function clockOf(iso) {
-  if (!iso) return "--:--:--";
-  const d = new Date(iso);
-  return isNaN(d) ? String(iso).slice(11, 19) : d.toLocaleTimeString([], { hour12: false });
-}
-
-function bytes(n) {
-  if (n === undefined || n === null) return "-";
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0, v = Number(n);
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  return (i === 0 ? v : v.toFixed(1)) + " " + units[i];
-}
-
-function duration(seconds) {
-  const s = Math.max(0, Math.floor(seconds || 0));
-  if (s < 60) return s + "s";
-  if (s < 3600) return Math.floor(s / 60) + "m " + (s % 60) + "s";
-  return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
-}
-
-function shortPath(value) {
-  // Collapse the middle of a long path. Folder names containing spaces
-  // otherwise wrap at every space and shred the column.
-  const full = String(value || "");
-  if (full.length <= 48) return full;
-  const sep = full.indexOf("\\") >= 0 ? "\\" : "/";
-  const parts = full.split(/[\\/]/).filter(Boolean);
-  if (parts.length <= 3) return full;
-  return parts[0] + sep + "\u2026" + sep + parts.slice(-2).join(sep);
-}
-
-function baseName(p) {
-  return String(p || "").split(/[\\/]/).pop() || String(p || "");
-}
-
-function targetStateLabel(finding) {
-  if (!finding || finding.event_type !== "yara_match") return "";
-  const target = finding.target_state || (finding.target_exists === false ? "gone" : "");
-  if (!target || target === "present") return "";
-  if (target === "delete") return "deleted";
-  if (target === "quarantine") return "quarantined";
-  return target === "gone" ? "file gone" : target;
-}
-
-function targetStateBadge(finding) {
-  const label = targetStateLabel(finding);
-  if (!label) return "";
-  const target = String(finding.target_state || "gone").replace(/[^a-z_]/g, "");
-  return '<span class="target-badge target-' + esc(target) + '">' + esc(label) + '</span>';
-}
-
-function toast(message, isError) {
-  const el = document.createElement("div");
-  el.className = "toast" + (isError ? " err" : "");
-  el.textContent = message;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 3800);
-}
-
-async function api(path, options) {
-  const res = await fetch(path, options);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err = new Error(data.error || data.refused || res.status + " " + res.statusText);
-    err.status = res.status;
-    err.data = data;
-    throw err;
-  }
-  return data;
-}
-
-const post = (path, payload) =>
-  api(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload || {}),
-  });
+/* Security Suite console - vanilla JS modules, fed by /api/* and an SSE stream.
+ * No build step: these are native ES modules loaded straight by the browser.
+ */
+import {
+  $, SEVS, SEV_COLOR, state, esc, clockOf, bytes, duration, shortPath, baseName,
+  targetStateLabel, targetStateBadge, toast, api, post,
+} from "./js/core.js";
+import { attackChips, attackSection, loadAttack, renderAttack } from "./js/attack.js";
+import { mountRouter, showView } from "./js/router.js";
+import { mountHunt, runHunt } from "./js/hunt.js";
+import { mountPalette } from "./js/palette.js";
 
 /* -------------------------------------------------------------------- KPI */
 function renderStats(stats, monitor) {
@@ -375,88 +283,6 @@ function matchesFilters(finding) {
   return true;
 }
 
-
-/* ------------------------------------------------------------------ attack */
-function attackChips(match) {
-  const techniques = match.attack || [];
-  if (!techniques.length) return "";
-  return '<span class="attack-chips">' + techniques.map((t) =>
-    '<a class="attack-chip' + (t.known ? "" : " unknown") + '" href="' + esc(t.url) +
-    '" target="_blank" rel="noreferrer" title="' + esc(t.name) + '">' +
-    esc(t.id) + '</a>').join("") + '</span>';
-}
-
-function attackSection(finding) {
-  const seen = new Map();
-  (finding.matches || []).forEach((m) => (m.attack || []).forEach((t) => {
-    if (!seen.has(t.id)) seen.set(t.id, t);
-  }));
-  if (!seen.size) return "";
-  const techniques = [...seen.values()];
-  const tactics = [...new Set(techniques.flatMap((t) => t.tactics || []))];
-  return '<h3>ATT&amp;CK</h3>' +
-    '<div class="attack-summary">' +
-      tactics.map((id) => '<span class="tactic-pill">' +
-        esc(TACTIC_LABELS[id] || id) + '</span>').join("") +
-    '</div>' +
-    '<div class="attack-tech-list">' + techniques.map((t) =>
-      '<a class="attack-tech" href="' + esc(t.url) + '" target="_blank" rel="noreferrer">' +
-        '<code>' + esc(t.id) + '</code><span>' + esc(t.name) + '</span></a>').join("") +
-    '</div>';
-}
-
-const TACTIC_LABELS = {};
-
-async function loadAttack() {
-  try {
-    const data = await api("/api/attack/coverage");
-    renderAttack(data);
-  } catch (_) {
-    const grid = $("attack-matrix");
-    if (grid) grid.innerHTML = '<span class="faint">Coverage unavailable.</span>';
-  }
-}
-
-function renderAttack(data) {
-  const grid = $("attack-matrix");
-  if (!grid) return;
-  (data.tactics || []).forEach((col) => { TACTIC_LABELS[col.id] = col.name; });
-  const maxHits = Math.max(1, ...(data.tactics || []).flatMap((c) =>
-    c.techniques.map((t) => t.detections)));
-  grid.innerHTML = (data.tactics || []).map((col) => {
-    const cells = col.techniques.map((cell) => {
-      const t = cell.technique;
-      // Shade by detection volume; a covered-but-silent technique stays flat.
-      const heat = cell.detections ? Math.min(1, 0.25 + cell.detections / maxHits) : 0;
-      const title = t.id + " " + t.name + " — " + cell.rules.length + " rule(s), " + cell.detections + " detection(s)";
-      return '<button class="attack-cell' + (cell.detections ? " hot" : "") +
-        '" style="--heat:' + heat.toFixed(3) + '" data-technique="' + esc(t.id) +
-        '" title="' + esc(title) + '">' +
-        '<code>' + esc(t.id) + '</code>' +
-        '<span>' + esc(t.name.split(": ").pop()) + '</span>' +
-        (cell.detections ? '<i>' + cell.detections + '</i>' : '') +
-        '</button>';
-    }).join("");
-    return '<div class="attack-col' + (col.techniques.length ? "" : " empty") + '">' +
-      '<div class="attack-col-head"><b>' + esc(col.name) + '</b>' +
-      '<span class="faint mono">' + col.covered + '</span></div>' +
-      (cells || '<div class="attack-none">no coverage</div>') + '</div>';
-  }).join("");
-
-  const note = $("attack-note");
-  if (note) {
-    note.textContent = data.covered_techniques + " techniques covered · " +
-      data.detected_techniques + " seen · " + data.total_detections + " detections";
-  }
-  grid.querySelectorAll(".attack-cell").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      // Pivot: filter the findings table to this technique.
-      $("q").value = btn.dataset.technique;
-      loadFindings();
-      document.querySelector(".findings-panel").scrollIntoView({ behavior: "smooth" });
-    });
-  });
-}
 
 /* ----------------------------------------------------------------- drawer */
 function openDrawer(id) {
@@ -1203,9 +1029,23 @@ function mountDrawer() {
     btn.addEventListener("click", () => remediate(btn.dataset.remediate)));
 }
 
+/* Views ask for things through events rather than importing each other, so
+ * the ATT&CK matrix can pivot into the findings table without the two modules
+ * depending on one another. */
+document.addEventListener("suite:filter", (e) => {
+  const { query, view } = e.detail || {};
+  if (query !== undefined) $("q").value = query;
+  if (view) showView(view);
+  loadFindings();
+});
+document.addEventListener("suite:hunt", (e) => runHunt((e.detail || {}).query));
+
 mountDrawer();
 wire();
 syncControls();
+mountRouter();
+mountHunt();
+mountPalette();
 refresh();
 loadFindings();
 loadIntel();
