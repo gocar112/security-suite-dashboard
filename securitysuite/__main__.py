@@ -13,6 +13,7 @@ from .osv import OsvClient
 from .server import serve
 from .store import EventStore
 from .telemetry import AuthTelemetry
+from .virustotal import VtClient
 from .watcher import Monitor
 
 BANNER = r"""
@@ -65,13 +66,14 @@ def build(args):
     )
     nvd = NvdClient(cfg.nvd_cache_dir, cfg.nvd_api_key)
     osv = OsvClient(cfg.osv_cache_dir)
+    vt = VtClient(cfg.virustotal_api_key, cfg.vt_cache_dir)
     monitor = Monitor(cfg, engine, store, telemetry)
-    return cfg, engine, store, telemetry, monitor, nvd, osv
+    return cfg, engine, store, telemetry, monitor, nvd, osv, vt
 
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    cfg, engine, store, telemetry, monitor, nvd, osv = build(args)
+    cfg, engine, store, telemetry, monitor, nvd, osv, vt = build(args)
 
     info = engine.info()
     print(BANNER)
@@ -103,7 +105,7 @@ def main(argv=None) -> int:
     httpd = None
     if not args.headless:
         try:
-            httpd = serve(cfg, engine, store, telemetry, monitor, nvd, osv)
+            httpd = serve(cfg, engine, store, telemetry, monitor, nvd, osv, vt)
         except OSError as exc:
             print("[-] Could not bind " + cfg.host + ":" + str(cfg.port) + " -> " + str(exc))
             return 1

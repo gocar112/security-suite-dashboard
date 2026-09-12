@@ -41,7 +41,7 @@ INTEL_SOURCES = (
 class Context:
     """Everything the request handler needs, injected onto the server object."""
 
-    def __init__(self, cfg, engine, store, telemetry, monitor, nvd=None, osv=None):
+    def __init__(self, cfg, engine, store, telemetry, monitor, nvd=None, osv=None, vt=None):
         self.cfg = cfg
         self.engine = engine
         self.store = store
@@ -49,6 +49,7 @@ class Context:
         self.monitor = monitor
         self.nvd = nvd
         self.osv = osv
+        self.vt = vt
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -135,6 +136,30 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self.ctx.telemetry.recent(force=params.get("force") == "1"))
         elif route == "/api/intel":
             self._json(self._intel())
+        elif route == "/api/vt":
+            self._json(self.ctx.vt.status() if self.ctx.vt
+                       else {"source": "virustotal", "status": "disabled"})
+        elif route == "/api/vt/capabilities":
+            if self.ctx.vt is None:
+                self._json({"error": "virustotal adapter not enabled"}, 503)
+                return
+            self._json(self.ctx.vt.capabilities(refresh=params.get("refresh") == "1"))
+        elif route == "/api/vt/file":
+            if self.ctx.vt is None:
+                self._json({"error": "virustotal adapter not enabled"}, 503)
+                return
+            digest = (params.get("hash") or "").strip()
+            if not digest:
+                self._json({"error": "hash is required"}, 400)
+                return
+            self._json(self.ctx.vt.lookup_hash(digest))
+        elif route in ("/api/vt/livehunt", "/api/vt/retrohunt"):
+            if self.ctx.vt is None:
+                self._json({"error": "virustotal adapter not enabled"}, 503)
+                return
+            feature = "livehunt" if route.endswith("livehunt") else "retrohunt"
+            result = self.ctx.vt.hunting(feature)
+            self._json(result, 200 if result.get("available") else 402)
         elif route == "/api/osv":
             self._json(self.ctx.osv.status() if self.ctx.osv
                        else {"source": "osv", "status": "disabled"})
@@ -301,6 +326,15 @@ class Handler(BaseHTTPRequestHandler):
                 "status": vt_status if source_id == "virustotal" else status,
                 "configured": bool(vt_key) if source_id == "virustotal" else True,
             }
+            if source_id == "virustotal" and self.ctx.vt is not None:
+                vt_state = self.ctx.vt.status()
+                vt_tier = vt_state.get("tier", "public")
+                entry["tier"] = vt_tier
+                entry["hunting"] = vt_state.get("hunting_available", False)
+                entry["detail"] = (
+                    "enterprise: hunting available" if vt_state.get("hunting_available")
+                    else "public tier: hash lookups only"
+                    if vt_state.get("configured") else "no key configured")
             if source_id == "osv" and self.ctx.osv is not None:
                 osv_state = self.ctx.osv.status()
                 entry["status"] = ("offline" if osv_state.get("last_error")
@@ -365,9 +399,9 @@ class DashboardServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
 
-def serve(cfg, engine, store, telemetry, monitor, nvd=None, osv=None) -> DashboardServer:
+def serve(cfg, engine, store, telemetry, monitor, nvd=None, osv=None, vt=None) -> DashboardServer:
     httpd = DashboardServer((cfg.host, cfg.port), Handler)
-    httpd.ctx = Context(cfg, engine, store, telemetry, monitor, nvd, osv)  # type: ignore[attr-defined]
+    httpd.ctx = Context(cfg, engine, store, telemetry, monitor, nvd, osv, vt)  # type: ignore[attr-defined]
     thread = threading.Thread(target=httpd.serve_forever, name="securitysuite-http",
                               daemon=True)
     thread.start()

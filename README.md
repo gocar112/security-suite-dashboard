@@ -74,6 +74,7 @@ securitysuite/
   net.py                shared TLS context (certifi) + JSON helpers
   nvd.py                NVD CVE API 2.0 client + local cache
   osv.py                OSV.dev lookup by commit / package / purl
+  virustotal.py         hash reputation + Enterprise capability probe
 assets/securitysuite.ico  desktop shortcut icon
 book/                   the field guide (pdf + docx)
 nvds/                   NVD cache (contents gitignored)
@@ -176,7 +177,7 @@ actually succeeded.
 | --- | --- | --- |
 | **NVD** | optional | Browse CVEs by id, keyword, or modification window. ~390,000 records. |
 | **OSV** | none | "Is *this* artifact vulnerable?" — query by commit, package, or purl. |
-| **VirusTotal** | required | File and hash reputation. |
+| **VirusTotal** | required | Hash reputation. Hunting is Enterprise-only — see below. |
 
 ```bash
 # Sync the trailing 3 days of CVEs into ./nvds
@@ -194,6 +195,47 @@ curl -s "http://127.0.0.1:8787/api/nvd/cve?id=CVE-2021-44228"
 
 NVD works with no key at 5 requests per 30 s; a free key raises that to 50.
 OSV needs no credential at all. VirusTotal does no work without one.
+
+### VirusTotal tiers, and what Hunting needs
+
+VT Hunting — **Livehunt**, **Retrohunt** and **VTDIFF** — runs YARA across
+VirusTotal's own stream and 600 TB historical corpus. All three are **Enterprise
+features**. On the public API tier every Hunting and Intelligence endpoint
+returns `403 ForbiddenError`, so the adapter probes the key on startup and
+reports what it found rather than shipping panels that cannot work:
+
+```bash
+curl -s http://127.0.0.1:8787/api/vt/capabilities
+```
+
+```json
+{ "tier": "public",
+  "allowed": { "file_lookup": true, "livehunt": false,
+               "retrohunt": false, "intelligence_search": false },
+  "detail": "Public API tier: hash lookups only. Livehunt, Retrohunt, VTDIFF
+             and Intelligence search require a VT Enterprise account." }
+```
+
+`/api/vt/livehunt` and `/api/vt/retrohunt` return **402** with that explanation
+on a public key, and start working by themselves if the key is later upgraded —
+the gate is a live capability probe, not a hardcoded assumption.
+
+What the public tier *does* give you is the useful half for this tool: turning a
+local YARA hit into a second opinion from ~75 engines.
+
+```bash
+curl -s "http://127.0.0.1:8787/api/vt/file?hash=<sha256 from a finding>"
+```
+
+Public tier allows 4 requests/minute and 500/day, so lookups are rate limited to
+match and cached by hash. Enrichment is deliberately **on demand** rather than
+automatic on every scan — a busy watched directory would exhaust the daily quota
+in minutes.
+
+> **This client never uploads files.** Submitting a file to VirusTotal publishes
+> it, and other users can download it. Auto-submitting whatever lands in a
+> watched folder would leak customer data and credentials in config files.
+> Hashes only; uploading stays a human decision in the VT web interface.
 
 ### Credentials
 
@@ -291,6 +333,10 @@ loopback name (DNS-rebinding guard).
 | POST | `/api/nvd/sync` | `{"days": 3}` — sync the trailing window into the cache |
 | GET&nbsp;/&nbsp;POST | `/api/osv/query` | lookup by `commit`, `purl`, or `package`+`ecosystem`+`version` |
 | GET | `/api/osv` | OSV adapter status |
+| GET | `/api/vt` | VirusTotal adapter status and detected tier |
+| GET | `/api/vt/capabilities` | what the key may actually reach (probed, cached) |
+| GET | `/api/vt/file?hash=` | hash reputation: engine verdicts, family label, permalink |
+| GET | `/api/vt/livehunt` `…/retrohunt` | Enterprise-gated; returns 402 with the reason on public tier |
 | GET | `/api/stream` | Server-Sent Events: `hello`, `event`, `stats` |
 | POST | `/api/scan` | `{"path": "..."}` — scan a file or tree |
 | POST | `/api/monitor` | `{"action": "pause"\|"resume"}` |

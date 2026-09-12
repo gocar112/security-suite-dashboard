@@ -75,6 +75,7 @@ class Config:
     nvd_sync_days: int = 3
     nvd_max_records: int = 4000
     osv_cache_dir: str = str(ROOT / "data" / "osv")
+    vt_cache_dir: str = str(ROOT / "data" / "vt")
 
     @property
     def max_file_bytes(self) -> int:
@@ -116,4 +117,5 @@ def load_config(path: Path | None = None) -> Config:
     os.makedirs(cfg.rules_dir, exist_ok=True)
     os.makedirs(cfg.nvd_cache_dir, exist_ok=True)
     os.makedirs(cfg.osv_cache_dir, exist_ok=True)
+    os.makedirs(cfg.vt_cache_dir, exist_ok=True)
     return cfg
