@@ -96,6 +96,23 @@
           </div>
         </div>
         <div class="lower-panels"><div class="panel compact-panel"><div class="panel-head"><div><div class="section-kicker">02 / Pulse</div><h2>Detection activity</h2></div><span class="tag">last 60 minutes</span></div><div class="body"><div class="bars" id="bars"></div><div class="axis"><span>60m ago</span><span>30m</span><span>now</span></div></div></div><div class="panel compact-panel"><div class="panel-head"><div><div class="section-kicker">03 / Wire</div><h2>Live feed</h2></div><span class="live-key"><i class="status-dot live"></i> live</span></div><div class="body"><div class="feed" id="feed"></div></div></div></div>
+        <div class="panel remediation-panel">
+          <div class="panel-head"><div><div class="section-kicker">11 / Remediate</div><h2>Containment</h2></div><span class="tag" id="rem-mode">manual</span></div>
+          <div class="body">
+            <div class="rail-strip" id="rem-rails"></div>
+            <div class="rem-bulk">
+              <label class="rem-label">Act on</label>
+              <select id="rem-severity"><option value="critical">Critical only</option><option value="high">High and above</option><option value="all">Any severity</option></select>
+              <input type="text" id="rem-ext" placeholder="extensions: ps1,exe,py (blank = any)">
+              <select id="rem-action"><option value="quarantine">Quarantine</option><option value="delete">Delete (irreversible)</option></select>
+              <button class="action-btn" id="rem-preview">Preview</button>
+              <button class="danger-btn" id="rem-run" disabled>Run</button>
+            </div>
+            <div id="rem-preview-out" class="rem-preview"></div>
+            <div class="rem-ledger-head">Recent actions</div>
+            <div class="rem-ledger" id="rem-ledger"></div>
+          </div>
+        </div>
       </div>
 
       <aside class="sidebar">

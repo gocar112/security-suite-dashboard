@@ -9,7 +9,9 @@ import webbrowser
 from .config import load_config
 from .engine import YaraEngine
 from .nvd import NvdClient
+from .guidance import Guidance
 from .osv import OsvClient
+from .remediate import Remediator
 from .server import serve
 from .store import EventStore
 from .telemetry import AuthTelemetry
@@ -67,13 +69,15 @@ def build(args):
     nvd = NvdClient(cfg.nvd_cache_dir, cfg.nvd_api_key)
     osv = OsvClient(cfg.osv_cache_dir)
     vt = VtClient(cfg.virustotal_api_key, cfg.vt_cache_dir)
-    monitor = Monitor(cfg, engine, store, telemetry)
-    return cfg, engine, store, telemetry, monitor, nvd, osv, vt
+    remediator = Remediator(cfg, store, nvd)
+    guidance = Guidance(cfg.guidance_cache_dir, nvd)
+    monitor = Monitor(cfg, engine, store, telemetry, remediator)
+    return cfg, engine, store, telemetry, monitor, nvd, osv, vt, remediator, guidance
 
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    cfg, engine, store, telemetry, monitor, nvd, osv, vt = build(args)
+    cfg, engine, store, telemetry, monitor, nvd, osv, vt, remediator, guidance = build(args)
 
     info = engine.info()
     print(BANNER)
@@ -92,6 +96,13 @@ def main(argv=None) -> int:
           + nvd_state["rate_limit"] + ", tls via " + nvd_state["tls_bundle"]
           + (" (last sync " + nvd_state["last_sync"] + ")" if nvd_state.get("last_sync") else ""))
 
+    if cfg.auto_remediate:
+        print("[!] AUTO-REMEDIATE ARMED: " + cfg.auto_remediate_action
+              + " at severity " + cfg.auto_remediate_severity
+              + " - files will be acted on without confirmation")
+    else:
+        print("[*] Remediate  : manual only (auto-remediate off)")
+
     if args.scan:
         import json
         result = monitor.scan_path(args.scan)
@@ -105,7 +116,8 @@ def main(argv=None) -> int:
     httpd = None
     if not args.headless:
         try:
-            httpd = serve(cfg, engine, store, telemetry, monitor, nvd, osv, vt)
+            httpd = serve(cfg, engine, store, telemetry, monitor, nvd, osv, vt,
+                          remediator, guidance)
         except OSError as exc:
             print("[-] Could not bind " + cfg.host + ":" + str(cfg.port) + " -> " + str(exc))
             return 1

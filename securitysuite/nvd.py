@@ -25,6 +25,10 @@ BASE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 MAX_RESULTS_PER_PAGE = 2000
 MAX_WINDOW_DAYS = 120           # NVD rejects date ranges wider than this
 CVE_ID_PREFIX = "CVE-"
+# Bumped when normalise() changes shape, so stale cache entries are
+# treated as a miss rather than silently served without new fields.
+SCHEMA = 2
+PATCH_TAGS = {"Patch", "Vendor Advisory", "Mitigation"}
 
 SEVERITY_MAP = {                # NVD CVSS severity -> suite severity
     "CRITICAL": "critical",
@@ -74,7 +78,15 @@ def normalise(entry: dict) -> dict:
             if value.startswith("CWE-") and value not in weaknesses:
                 weaknesses.append(value)
 
+    patch_refs = []
+    for ref in cve.get("references", []) or []:
+        tags = set(ref.get("tags") or [])
+        if tags & PATCH_TAGS:
+            patch_refs.append({"url": ref.get("url", ""),
+                               "tags": sorted(tags & PATCH_TAGS)})
+
     return {
+        "schema": SCHEMA,
         "id": cve.get("id", ""),
         "published": cve.get("published", ""),
         "last_modified": cve.get("lastModified", ""),
@@ -87,6 +99,10 @@ def normalise(entry: dict) -> dict:
         "cwe": weaknesses[:4],
         "description": description[:600],
         "references": len(cve.get("references", []) or []),
+        "patch_refs": patch_refs[:8],
+        "kev": bool(cve.get("cisaExploitAdd")),
+        "kev_required_action": cve.get("cisaRequiredAction", ""),
+        "kev_action_due": cve.get("cisaActionDue", ""),
         "source": cve.get("sourceIdentifier", ""),
     }
 
@@ -138,8 +154,11 @@ class NvdClient:
         if use_cache and cached.exists():
             try:
                 record = json.loads(cached.read_text(encoding="utf-8"))
-                record["cached"] = True
-                return record
+                if record.get("schema") == SCHEMA:
+                    record["cached"] = True
+                    return record
+                # Written before the shape changed; re-fetch rather than serve
+                # a record missing the patch references.
             except (OSError, json.JSONDecodeError):
                 pass
 

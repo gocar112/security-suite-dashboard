@@ -17,20 +17,32 @@ from .telemetry import AuthTelemetry
 
 
 class Monitor(threading.Thread):
-    def __init__(self, cfg, engine: YaraEngine, store: EventStore, telemetry: AuthTelemetry):
+    def __init__(self, cfg, engine: YaraEngine, store: EventStore,
+                 telemetry: AuthTelemetry, remediator=None):
         super().__init__(name="securitysuite-monitor", daemon=True)
         self.cfg = cfg
         self.engine = engine
         self.store = store
         self.telemetry = telemetry
+        self.remediator = remediator
         self._stop = threading.Event()
         self._pause = threading.Event()
         # Never scan our own output: findings.ndjson contains the strings that
         # tripped the rules, so scanning it would alert on itself forever.
         self._self_paths = {
             os.path.normcase(os.path.abspath(p))
-            for p in (cfg.findings_log, cfg.triage_file)
+            for p in (cfg.findings_log, cfg.triage_file,
+                      getattr(cfg, "remediation_file", ""))
+            if p
         }
+        # A quarantined file still contains whatever tripped the rule. If the
+        # quarantine sits inside a watched tree it would be re-detected on every
+        # sweep - the findings.ndjson feedback loop again, with a file that was
+        # deliberately set aside.
+        self._excluded_dirs = [
+            os.path.normcase(os.path.abspath(d))
+            for d in (getattr(cfg, "quarantine_dir", ""),) if d
+        ]
         # path -> (mtime, size) at the moment we last scanned it
         self._scanned: dict[str, tuple] = {}
         # path -> (mtime, size, first_seen_at) for files still settling
@@ -101,7 +113,11 @@ class Monitor(threading.Thread):
                         continue
                     if entry.suffix.lower() in self.cfg.ignore_suffixes:
                         continue
-                    if os.path.normcase(os.path.abspath(entry)) in self._self_paths:
+                    resolved = os.path.normcase(os.path.abspath(entry))
+                    if resolved in self._self_paths:
+                        continue
+                    if any(resolved.startswith(d + os.sep) or resolved == d
+                           for d in self._excluded_dirs):
                         continue
                     yield str(entry), entry.stat()
                 except OSError:
@@ -198,6 +214,16 @@ class Monitor(threading.Thread):
             }
         )
         stored = self.store.add(event)
+        # Opt-in, off by default. The finding is stored first so the action has
+        # an id to reference and an audit trail to append to.
+        if self.remediator is not None:
+            try:
+                auto = self.remediator.consider_auto(stored)
+                if auto and auto.get("ok"):
+                    print("[!] AUTO-REMEDIATE " + str(auto.get("outcome"))
+                          + " " + str(stored.get("file_path")))
+            except Exception as exc:
+                print("[-] Auto-remediation failed: " + str(exc))
         print(
             "[!] ALERT "
             + str(stored.get("severity", "?")).upper()

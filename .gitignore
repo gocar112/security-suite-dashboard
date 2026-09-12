@@ -7,6 +7,10 @@ config.json
 nvds/*
 !nvds/.gitkeep
 
+# Quarantined files are malicious by definition - never commit them
+quarantine/*
+!quarantine/.gitkeep
+
 # Watched folder: keep the directory, never commit what lands in it
 uploads/*
 !uploads/.gitkeep

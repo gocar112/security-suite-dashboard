@@ -347,6 +347,8 @@ function openDrawer(id) {
         '<div>' + esc(s.identifier) + ' @ 0x' + Number(s.offset).toString(16) +
         '  <span class="faint">' + esc(s.preview) + '</span></div>').join("") + '</div>' +
       '</div>').join("") : '') +
+    remediationSection(finding) +
+    '<h3>Guidance</h3><div id="guidance-box"></div>' +
     iocSection(finding) +
     '<h3>Correlated auth telemetry</h3>' +
     '<div class="dim" style="font-size:12.5px;margin-bottom:7px">' +
@@ -364,6 +366,7 @@ function openDrawer(id) {
   $("drawer-content").innerHTML = html;
   $("drawer-title").textContent = baseName(finding.file_path) || finding.event_type;
   $("drawer-wrap").style.display = "block";
+  loadGuidance(id);
 }
 
 function closeDrawer() {
@@ -532,6 +535,188 @@ function iocSection(finding) {
 }
 
 /* --------------------------------------------------------------- lifecycle */
+
+/* --------------------------------------------------------- remediation */
+async function loadRemediation() {
+  try {
+    const data = await api("/api/remediate");
+    state.remediation = data;
+    renderRemediation(data);
+  } catch (_) { /* adapter disabled */ }
+}
+
+function renderRemediation(data) {
+  const mode = $("rem-mode");
+  if (mode) {
+    mode.textContent = data.auto_remediate
+      ? "auto: " + data.auto_action + " at " + data.auto_severity
+      : "manual";
+  }
+  const rails = $("rem-rails");
+  if (rails) {
+    const roots = (data.permitted_roots || []).map(baseName).join(", ") || "none";
+    rails.innerHTML =
+      '<span class="rail-badge on">sha-256 verified</span>' +
+      '<span class="rail-badge on">confined to ' + esc(roots) + '</span>' +
+      '<span class="rail-badge on">' + (data.protected_roots || []).length +
+        ' protected paths</span>' +
+      '<span class="rail-badge ' + (data.auto_remediate ? "warn" : "") + '">' +
+        (data.auto_remediate ? "auto-remediate ARMED" : "manual only") + '</span>' +
+      '<span class="rail-badge">' + (data.quarantined || 0) + ' quarantined</span>';
+  }
+  const ledger = $("rem-ledger");
+  if (!ledger) return;
+  const rows = data.recent || [];
+  ledger.innerHTML = rows.length ? rows.slice(0, 25).map((r) => {
+    const outcome = String(r.outcome || "refused");
+    return '<div class="rem-row">' +
+      '<span class="faint">' + clockOf(r.timestamp) + '</span>' +
+      '<span class="rem-out ' + esc(outcome) + '">' + esc(outcome) + '</span>' +
+      '<span>' + esc(baseName(r.path || "")) +
+        (r.refused ? ' <span class="faint">- ' + esc(r.refused) + '</span>' : "") +
+      '</span></div>';
+  }).join("") : '<span class="faint">No actions taken yet.</span>';
+}
+
+function remExtensions() {
+  return ($("rem-ext").value || "").split(/[,\s]+/)
+    .map((x) => x.trim().replace(/^\./, "")).filter(Boolean);
+}
+
+async function previewRemediation() {
+  const out = $("rem-preview-out");
+  out.textContent = "Checking...";
+  try {
+    const data = await post("/api/remediate/bulk", {
+      severity: $("rem-severity").value,
+      extensions: remExtensions(),
+      action: $("rem-action").value,
+      dry_run: true,
+      limit: 100,
+    });
+    state.remPreview = data;
+    const rows = (data.results || []).filter((r) => r.ok);
+    const blocked = (data.results || []).filter((r) => r.refused);
+    out.innerHTML =
+      '<b>' + data.matched + '</b> finding(s) match &middot; ' +
+      '<b>' + rows.length + '</b> actionable' +
+      (blocked.length ? ' &middot; <span class="faint">' + blocked.length +
+        ' refused by the rails</span>' : "") +
+      (rows.length ? '<table>' + rows.slice(0, 12).map((r) =>
+        '<tr><td>' + esc(baseName(r.path)) + '</td><td class="faint">' +
+        esc(r.severity || "") + '</td></tr>').join("") + '</table>' : "");
+    $("rem-run").disabled = rows.length === 0;
+    $("rem-run").dataset.count = String(rows.length);
+    $("rem-run").classList.remove("armed");
+    $("rem-run").textContent = "Run";
+  } catch (err) {
+    out.innerHTML = '<span style="color:var(--coral)">' + esc(err.message) + '</span>';
+  }
+}
+
+async function runRemediation() {
+  const button = $("rem-run");
+  const count = Number(button.dataset.count || 0);
+  const action = $("rem-action").value;
+  // Arm then fire: the first click only states what is about to happen.
+  if (!button.classList.contains("armed")) {
+    button.classList.add("armed");
+    button.textContent = action === "delete"
+      ? "Confirm: delete " + count + " file(s) - irreversible"
+      : "Confirm: quarantine " + count + " file(s)";
+    setTimeout(() => {
+      button.classList.remove("armed");
+      button.textContent = "Run";
+    }, 5000);
+    return;
+  }
+  button.classList.remove("armed");
+  button.disabled = true;
+  try {
+    const data = await post("/api/remediate/bulk", {
+      severity: $("rem-severity").value,
+      extensions: remExtensions(),
+      action, confirm: true, dry_run: false, limit: 100,
+    });
+    toast(data.action + ": " + data.acted + " of " + data.matched + " acted on");
+    $("rem-preview-out").textContent = "";
+    button.textContent = "Run";
+    loadRemediation();
+    loadFindings();
+  } catch (err) {
+    toast(err.message, true);
+    button.textContent = "Run";
+  }
+}
+
+function remediationSection(finding) {
+  const rem = finding.remediation;
+  if (!rem) return "";
+  return '<h3>Remediation</h3><div class="guidance-block">' +
+    '<p><b>' + esc(rem.action) + '</b> &middot; ' + esc(rem.at || "") + '</p>' +
+    '<p>' + esc(rem.detail || "") + '</p></div>';
+}
+
+async function loadGuidance(findingId) {
+  const box = $("guidance-box");
+  if (!box) return;
+  box.innerHTML = '<span class="faint">Looking up guidance...</span>';
+  try {
+    const g = await api("/api/remediate/guidance?id=" + encodeURIComponent(findingId));
+    let html = "";
+    (g.required_actions || []).forEach((a) => {
+      html += '<div class="guidance-block"><h4>CISA required action &middot; ' +
+        esc(a.cve) + '</h4><p>' + esc(a.action) + '</p>' +
+        (a.due ? '<p class="kev-due">Due ' + esc(a.due) + '</p>' : "") + '</div>';
+    });
+    const pb = g.playbook || {};
+    if (pb.steps) {
+      html += '<div class="guidance-block"><h4>Playbook &middot; ' +
+        esc(pb.source || "") + '</h4><p>' + esc(pb.summary || "") + '</p><ol>' +
+        pb.steps.map((s) => "<li>" + esc(s) + "</li>").join("") + '</ol></div>';
+    }
+    if ((g.patch_refs || []).length) {
+      html += '<div class="guidance-block"><h4>Vendor patches</h4>' +
+        g.patch_refs.slice(0, 6).map((r) =>
+          '<a class="patch-link" href="' + esc(r.url) + '" target="_blank" ' +
+          'rel="noreferrer">' + esc((r.tags || []).join(",")) + " - " +
+          esc(r.url) + '</a>').join("") + '</div>';
+    }
+    box.innerHTML = html || '<span class="faint">No specific guidance.</span>';
+  } catch (err) {
+    box.innerHTML = '<span class="faint">Guidance unavailable: ' +
+      esc(err.message) + '</span>';
+  }
+}
+
+async function remediate(action) {
+  if (!state.selected) return;
+  const finding = state.findings.find((f) => f.id === state.selected);
+  const name = finding ? baseName(finding.file_path) : "this file";
+  if (action === "delete" &&
+      !confirm("Permanently delete " + name + "?\n\nThis cannot be undone. " +
+               "If this detection is a false positive the file is lost.")) {
+    return;
+  }
+  try {
+    const res = await post("/api/remediate", {
+      id: state.selected, action, confirm: true,
+    });
+    toast(res.ok ? name + ": " + res.outcome
+                 : "Refused - " + res.refused + " (" + (res.detail || "") + ")",
+          !res.ok);
+    if (res.ok) {
+      const idx = state.findings.findIndex((f) => f.id === state.selected);
+      if (idx >= 0) state.findings[idx].remediation = {
+        action, at: res.timestamp || "", detail: res.detail || "" };
+      loadRemediation();
+      closeDrawer();
+    }
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
 async function refresh() {
   try {
     const data = await api("/api/state");
@@ -540,6 +725,7 @@ async function refresh() {
     renderRules(data.engine);
     renderSensor(data);
     loadIocs();
+    loadRemediation();
     $("sub-title").textContent = data.config.watch_paths.length + " path(s) monitored";
   } catch (err) {
     toast("Backend unreachable: " + err.message, true);
@@ -628,6 +814,19 @@ function wire() {
     });
   }
 
+  if ($("rem-preview")) {
+    $("rem-preview").addEventListener("click", previewRemediation);
+    $("rem-run").addEventListener("click", runRemediation);
+    ["rem-severity", "rem-ext", "rem-action"].forEach((id) => {
+      const el = $(id);
+      if (el) el.addEventListener("change", () => {
+        $("rem-run").disabled = true;
+        $("rem-run").classList.remove("armed");
+        $("rem-run").textContent = "Run";
+      });
+    });
+  }
+
   $("btn-scan").addEventListener("click", async () => {
     const path = $("scan-path").value.trim();
     if (!path) { toast("Enter a file or folder path", true); return; }
@@ -701,12 +900,16 @@ function mountDrawer() {
       '<button data-triage="resolved">Resolve</button>' +
       '<button data-triage="false_positive">False positive</button>' +
       '<button data-triage="new" class="ghost">Reopen</button>' +
+      '<button data-remediate="quarantine">Quarantine</button>' +
+      '<button data-remediate="delete" class="danger-btn">Delete file</button>' +
     '</div></div>';
   document.body.appendChild(wrap);
   $("drawer-close").addEventListener("click", closeDrawer);
   $("drawer-backdrop").addEventListener("click", closeDrawer);
   wrap.querySelectorAll("[data-triage]").forEach((btn) =>
     btn.addEventListener("click", () => triage(btn.dataset.triage)));
+  wrap.querySelectorAll("[data-remediate]").forEach((btn) =>
+    btn.addEventListener("click", () => remediate(btn.dataset.remediate)));
 }
 
 mountDrawer();

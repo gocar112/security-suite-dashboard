@@ -42,7 +42,8 @@ INTEL_SOURCES = (
 class Context:
     """Everything the request handler needs, injected onto the server object."""
 
-    def __init__(self, cfg, engine, store, telemetry, monitor, nvd=None, osv=None, vt=None):
+    def __init__(self, cfg, engine, store, telemetry, monitor, nvd=None,
+                 osv=None, vt=None, remediator=None, guidance=None):
         self.cfg = cfg
         self.engine = engine
         self.store = store
@@ -51,6 +52,8 @@ class Context:
         self.nvd = nvd
         self.osv = osv
         self.vt = vt
+        self.remediator = remediator
+        self.guidance = guidance
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -70,6 +73,29 @@ class Handler(BaseHTTPRequestHandler):
         """Block DNS-rebinding: only localhost names may talk to the API."""
         host = (self.headers.get("Host") or "").split(":")[0].strip("[]").lower()
         return host in ("localhost", "127.0.0.1", "::1", "")
+
+    def _csrf_ok(self) -> tuple:
+        """Reject cross-origin writes.
+
+        `_body()` never checked Content-Type, so a POST with
+        `Content-Type: text/plain` is a CORS *simple request* - no preflight -
+        and any page the operator happened to have open could fire one at
+        127.0.0.1. It could not read the reply, but a deletion does not need a
+        reply. Requiring application/json forces a preflight this server does
+        not answer, so the browser blocks it before do_POST is reached.
+        """
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            return False, "Content-Type must be application/json"
+        origin = self.headers.get("Origin")
+        if origin:
+            host = urlparse(origin).hostname or ""
+            if host.lower() not in ("localhost", "127.0.0.1", "::1"):
+                return False, "cross-origin request refused"
+        site = (self.headers.get("Sec-Fetch-Site") or "").lower()
+        if site and site not in ("same-origin", "none"):
+            return False, "cross-site request refused"
+        return True, ""
 
     def _send(self, code: int, body: bytes, content_type: str, extra: dict | None = None):
         self.send_response(code)
@@ -158,6 +184,24 @@ class Handler(BaseHTTPRequestHandler):
                            {"Content-Disposition": 'attachment; filename="iocs.csv"'})
                 return
             self._json(data)
+        elif route == "/api/remediate":
+            if self.ctx.remediator is None:
+                self._json({"error": "remediation not enabled"}, 503)
+                return
+            self._json(self.ctx.remediator.status())
+        elif route == "/api/remediate/guidance":
+            if self.ctx.guidance is None:
+                self._json({"error": "guidance not enabled"}, 503)
+                return
+            finding_id = (params.get("id") or "").strip()
+            if not finding_id:
+                self._json({"error": "id is required"}, 400)
+                return
+            finding = self.ctx.remediator._find(finding_id) if self.ctx.remediator else None
+            if finding is None:
+                self._json({"error": "unknown finding"}, 404)
+                return
+            self._json(self.ctx.guidance.for_finding(finding))
         elif route == "/api/vt":
             self._json(self.ctx.vt.status() if self.ctx.vt
                        else {"source": "virustotal", "status": "disabled"})
@@ -237,6 +281,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "host not allowed"}, 403)
             return
         route = urlparse(self.path).path.rstrip("/") or "/"
+        allowed, why = self._csrf_ok()
+        if not allowed:
+            self._json({"error": why}, 403)
+            return
         body = self._body()
 
         if route == "/api/scan":
@@ -283,6 +331,36 @@ class Handler(BaseHTTPRequestHandler):
                 "message": "NVD sync: " + str(result.get("cached", 0)) + " CVEs cached"
                            if "error" not in result else "NVD sync failed: " + result["error"],
             })
+            self._json(result)
+        elif route == "/api/remediate":
+            if self.ctx.remediator is None:
+                self._json({"error": "remediation not enabled"}, 503)
+                return
+            finding_id = str(body.get("id", "")).strip()
+            if not finding_id:
+                self._json({"error": "id is required"}, 400)
+                return
+            result = self.ctx.remediator.act(
+                finding_id,
+                str(body.get("action", "quarantine")),
+                confirm=bool(body.get("confirm")),
+                dry_run=bool(body.get("dry_run")),
+                allow_directory=bool(body.get("allow_directory")),
+            )
+            # A refusal is a considered answer, not a server fault: 409.
+            self._json(result, 200 if result.get("ok") else 409)
+        elif route == "/api/remediate/bulk":
+            if self.ctx.remediator is None:
+                self._json({"error": "remediation not enabled"}, 503)
+                return
+            result = self.ctx.remediator.bulk(
+                severity=str(body.get("severity", "")),
+                extensions=body.get("extensions") or [],
+                action=str(body.get("action", "quarantine")),
+                confirm=bool(body.get("confirm")),
+                dry_run=body.get("dry_run", True) is not False,
+                limit=int(body.get("limit", 50)),
+            )
             self._json(result)
         elif route == "/api/triage":
             updated = self.ctx.store.set_status(
@@ -423,9 +501,11 @@ class DashboardServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
 
-def serve(cfg, engine, store, telemetry, monitor, nvd=None, osv=None, vt=None) -> DashboardServer:
+def serve(cfg, engine, store, telemetry, monitor, nvd=None, osv=None,
+          vt=None, remediator=None, guidance=None) -> DashboardServer:
     httpd = DashboardServer((cfg.host, cfg.port), Handler)
-    httpd.ctx = Context(cfg, engine, store, telemetry, monitor, nvd, osv, vt)  # type: ignore[attr-defined]
+    httpd.ctx = Context(cfg, engine, store, telemetry, monitor, nvd, osv, vt,
+                        remediator, guidance)  # type: ignore[attr-defined]
     thread = threading.Thread(target=httpd.serve_forever, name="securitysuite-http",
                               daemon=True)
     thread.start()

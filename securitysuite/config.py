@@ -77,6 +77,20 @@ class Config:
     osv_cache_dir: str = str(ROOT / "data" / "osv")
     vt_cache_dir: str = str(ROOT / "data" / "vt")
 
+    # --- remediation (destructive; see securitysuite/remediate.py) ---
+    # quarantine_dir MUST sit outside every watch path, or a quarantined
+    # file is re-detected forever.
+    quarantine_dir: str = str(ROOT / "quarantine")
+    remediation_file: str = str(ROOT / "data" / "remediation.json")
+    guidance_cache_dir: str = str(ROOT / "data" / "guidance")
+    remediation_roots: list = field(default_factory=list)
+    # Automatic remediation is opt-in and defaults to the non-destructive
+    # action. An unattended delete is a different risk class from one an
+    # operator chose.
+    auto_remediate: bool = False
+    auto_remediate_severity: str = "critical"
+    auto_remediate_action: str = "quarantine"
+
     @property
     def max_file_bytes(self) -> int:
         return int(self.max_file_mb * 1024 * 1024)
@@ -118,4 +132,7 @@ def load_config(path: Path | None = None) -> Config:
     os.makedirs(cfg.nvd_cache_dir, exist_ok=True)
     os.makedirs(cfg.osv_cache_dir, exist_ok=True)
     os.makedirs(cfg.vt_cache_dir, exist_ok=True)
+    os.makedirs(cfg.quarantine_dir, exist_ok=True)
+    os.makedirs(cfg.guidance_cache_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(cfg.remediation_file) or ".", exist_ok=True)
     return cfg

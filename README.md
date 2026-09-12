@@ -13,6 +13,7 @@ browser console in real time.
 | **Pivot** | URLs, domains, IPs, wallets, CVEs and paths extracted from every detection, defanged, with CSV export |
 | **Enrich** | Live NVD, OSV and VirusTotal adapters — no credential needed for the first two |
 | **Triage** | Acknowledge, resolve, mark false positive, in place and persisted |
+| **Remediate** | Quarantine or delete a detected file, behind six safety rails, with CISA-sourced patch guidance |
 
 One hard dependency (`yara-python`); the server is `http.server` from the
 standard library and the dashboard is plain HTML/CSS/JS. Nothing to build.
@@ -24,6 +25,8 @@ python run.py
 ```
 
 Then open <http://127.0.0.1:8787> (it opens automatically).
+
+![The Security Suite dashboard](docs/images/dashboard.png)
 
 ---
 
@@ -41,6 +44,132 @@ Python 3.10 or newer.
 
 ```bash
 pip install -r requirements.txt   # only if you move this to another machine
+```
+
+---
+
+## How to use it
+
+Five minutes, start to finish.
+
+### 1. Start it
+
+```bash
+python run.py
+```
+
+The console prints what loaded and what it can see — rule count, telemetry
+source, whether auto-remediation is armed. The browser opens by itself.
+
+### 2. Drop something in the watched folder
+
+```bash
+cp samples/README_RESTORE.txt uploads/     # macOS / Linux
+copy samples\README_RESTORE.txt uploads\   # Windows
+```
+
+It appears in **Findings** within about two seconds, no refresh. The samples each
+trip exactly one rule, so this is also the install check.
+
+![Findings table](docs/images/findings.png)
+
+### 3. Read the finding
+
+Click the row. The drawer gives you, in the order you need it: the verdict, the
+file's identity (SHA-256, size, entropy), every rule that matched **with the
+actual strings and their offsets**, the remediation guidance, the indicators
+pulled out of the file, and any failed logons from the same time window.
+
+![Finding detail drawer](docs/images/finding-drawer.png)
+
+Most triage decisions get made at the matched strings — which matters, because
+opening suspicious files is how analysts become incidents.
+
+### 4. Pivot on the indicators
+
+The **Extracted indicators** panel aggregates observables across every
+detection, ranked by how many distinct files they appear in — one address in
+four unrelated uploads is a campaign; forty mentions in one dropper is a verbose
+author. Everything is defanged, and **Export CSV** hands it to your SIEM.
+
+![Extracted indicators](docs/images/indicators.png)
+
+### 5. Remediate, if you mean it
+
+![Remediation panel](docs/images/remediation-panel.png)
+
+The badges are the current rails, read from the running system. Preview first —
+it shows exactly what would be acted on and what the rails refuse — then Run,
+which arms and asks again before doing anything.
+
+---
+
+## Remediation
+
+**This is the one destructive part of the suite.** Everything else only reads.
+
+| Action | Reversible? |
+| --- | --- |
+| `quarantine` | Yes — moved to `quarantine/` with its metadata |
+| `restore` | Puts a quarantined file back |
+| `delete` | **No.** `unlink`, gone |
+| `purge` | **No.** Empties a file from quarantine |
+
+### Six rails
+
+A remediation only proceeds if all six pass; otherwise it is refused, with a
+reason, and the refusal is recorded:
+
+1. **Target comes from the finding**, never from a path in the request — the API
+   is not an arbitrary-file-deletion primitive.
+2. **SHA-256 re-verified** immediately before acting. Changed since detection?
+   Refused — it is no longer the file that was detected.
+3. **Confined** to your watch paths, compared after `realpath` so a symlink
+   cannot walk out.
+4. **Directories refused** unless explicitly requested.
+5. **Dry run** reports the whole decision without touching anything.
+6. **Suite-owned paths are never remediable** — the package, `rules/`, `book/`,
+   `data/`, the quarantine, and every loose file in the project root.
+
+Rail 6 exists because of a measurement. Pointed at this repository, the ruleset
+flags 27 of 55 tracked files, **16 of them critical** — including the detector's
+own rule files. An earlier version of the rail listed protected directories
+instead of protecting the tree, and a test deleted `README.md`. Enumerating what
+to protect produces a list that is never complete.
+
+> **With 1,004 rules — 931 generated and never run against your data — expect
+> false positives.** One rule in this repo raised *critical* on a Sunday school
+> reading list containing the word *Exodus*. Prefer `quarantine` until you trust
+> a rule; `delete` cannot be undone.
+
+### Automatic remediation
+
+Off by default. When enabled it defaults to **quarantine**, not delete, because
+an unattended destructive action is a different risk from one you chose:
+
+```json
+{ "auto_remediate": true,
+  "auto_remediate_severity": "critical",
+  "auto_remediate_action": "quarantine" }
+```
+
+It announces itself at startup in terms that are hard to miss.
+
+### Guidance
+
+Every finding gets remediation guidance, and none of it is invented:
+
+- **CVE findings** — CISA KEV's `cisaRequiredAction` quoted verbatim, with the
+  due date and vendor patch links from NVD. All 931 generated rules carry a CVE.
+- **Malware findings** — a playbook selected by the rule's *name* first, because
+  `Ransom_Note_Template` lives in the `windows_threats` namespace and neither
+  the namespace nor its `malware` tag says ransomware.
+
+Deleting a file never remediates a CVE, so exposure findings say so and the
+auto-rule excludes them.
+
+```bash
+curl -s "http://127.0.0.1:8787/api/remediate/guidance?id=<finding id>"
 ```
 
 ---
@@ -375,10 +504,10 @@ Verification is never disabled.
 
 `book/Detection-Engineering-in-Practice.{pdf,docx}` is a field guide to SOC
 detection engineering that uses this repository as its running case study.
-Twelve chapters and four appendices covering YARA rule design, the race
+Thirteen chapters and four appendices covering YARA rule design, the race
 conditions in the file watcher, telemetry correlation, triage economics, the
-intel adapters, and indicator extraction — including the bugs found while
-building it. **Fourth edition, 86 pages / ~22,400 words.**
+intel adapters, indicator extraction, and remediation — including the bugs
+found while building it, one of which deleted this README. **Fifth edition, 92 pages / ~24,600 words.**
 
 Chapter 9 works through a real false positive end to end: scanning the book's
 own manuscript tripped twelve rules, eleven correctly (it quotes IOC strings)
@@ -536,4 +665,6 @@ The original file is unchanged; nothing here overwrites it.
   do not bind it to `0.0.0.0` on an untrusted network.
 - `POST /api/scan` will read any path the running user can read. That is the point
   of an on-demand scanner, but it is also why the listener stays on loopback.
-- Detection is read-only. Nothing is quarantined, moved, or deleted.
+- Remediation is **destructive and manual by default**. Nothing is moved or
+  deleted unless you act on a specific finding, or you explicitly enable the
+  auto-rule. See [Remediation](#remediation).
