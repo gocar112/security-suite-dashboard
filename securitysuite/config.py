@@ -62,6 +62,7 @@ class Config:
     findings_log: str = str(ROOT / "data" / "findings.ndjson")
     triage_file: str = str(ROOT / "data" / "triage.json")
     history_limit: int = 2000
+    hunts_file: str = str(ROOT / "data" / "hunts.json")
 
     # --- server ---
     host: str = "127.0.0.1"

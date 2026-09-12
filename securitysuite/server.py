@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import attack
+from . import attack, hunt
 from .ioc import summarise, to_csv
 from .store import now_iso
 
@@ -248,7 +248,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if route == "/":
             self._static("index.html")
-        elif route in ("/app.js", "/styles.css"):
+        elif route.endswith((".js", ".css", ".svg", ".map")) and ".." not in route:
+            # The whole web/ tree, so native ES modules resolve. _static()
+            # confines every path with is_relative_to before reading.
             self._static(route.lstrip("/"))
         elif route == "/favicon.ico":
             self._asset("securitysuite.ico")
@@ -271,6 +273,13 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif route == "/api/rules":
             self._json(self.ctx.engine.info())
+        elif route == "/api/hunt":
+            self._json(hunt.run(
+                params.get("q", ""),
+                self.ctx.store.events(limit=5000, event_type=params.get("type") or "all"),
+                limit=self._int_param(params.get("limit"), 300, 1, 2000)))
+        elif route == "/api/hunt/saved":
+            self._json({"hunts": self._saved_hunts()})
         elif route == "/api/attack/coverage":
             # Rule index says what the ruleset *can* see; findings say what it
             # *has* seen. The gap between them is the point of the view.
@@ -510,6 +519,12 @@ class Handler(BaseHTTPRequestHandler):
                 limit=self._int_param(body.get("limit"), 50, 1, 500),
             )
             self._json(result)
+        elif route == "/api/hunt/saved":
+            name = str(body.get("name", "")).strip()[:60]
+            if not name:
+                self._json({"error": "name is required"}, 400)
+                return
+            self._json({"hunts": self._save_hunt(name, str(body.get("query", "")).strip())})
         elif route == "/api/triage":
             updated = self.ctx.store.set_status(
                 str(body.get("id", "")),
@@ -522,6 +537,33 @@ class Handler(BaseHTTPRequestHandler):
             self._json(updated)
         else:
             self._json({"error": "not found"}, 404)
+
+    # ----------------------------------------------------------- saved hunts
+    def _hunts_path(self) -> Path:
+        return Path(getattr(self.ctx.cfg, "hunts_file",
+                            str(Path(self.ctx.cfg.findings_log).parent / "hunts.json")))
+
+    def _saved_hunts(self) -> list:
+        path = self._hunts_path()
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return []
+        return data if isinstance(data, list) else []
+
+    def _save_hunt(self, name: str, query: str) -> list:
+        hunts = [h for h in self._saved_hunts() if h.get("name") != name]
+        if query:                                  # empty query deletes
+            hunts.append({"name": name, "query": query, "saved_at": now_iso()})
+        path = self._hunts_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(hunts, indent=2), encoding="utf-8")
+        except OSError as exc:
+            print("[-] Could not persist saved hunts: " + str(exc))
+        return hunts
 
     # ---------------------------------------------------------------- state
     def _state(self) -> dict:

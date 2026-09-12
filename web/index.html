@@ -10,11 +10,12 @@
 </head>
 <body>
 <div class="shell">
-  <header class="topbar">
+  <header class="topbar" data-views="*">
     <div class="brand-lockup">
       <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
       <div><div class="brand-name">Security Suite</div><div class="brand-sub" id="sub-title">Signal room / local sensor</div></div>
     </div>
+    <nav class="view-rail" id="view-rail" aria-label="Views"></nav>
     <div class="topbar-separator"></div>
     <div class="status-cluster">
       <div class="status-chip"><i class="status-dot" id="stream-dot"></i><span id="stream-text">connecting</span></div>
@@ -29,7 +30,7 @@
   </header>
 
   <main>
-    <section class="mission-grid" aria-label="Mission overview">
+    <section class="mission-grid" aria-label="Mission overview" data-views="overview">
       <div class="mission-copy">
         <div class="eyebrow"><span class="eyebrow-pip"></span>Convergence control / <span id="intel-status">warming up</span></div>
         <h1>Keep the signal<br><em>inside the line.</em></h1>
@@ -58,7 +59,7 @@
       </div>
     </section>
 
-    <section class="source-strip" aria-label="Intelligence sources">
+    <section class="source-strip" aria-label="Intelligence sources" data-views="overview intel">
       <div class="strip-heading"><span>Source lattice</span><span class="strip-note" id="strip-note">checking adapters…</span></div><div class="strip-legend"><b>online</b> live adapter, request succeeded &middot; <b>ready</b> live adapter, not yet queried &middot; <b>catalog / bridge / reference</b> link only, no integration</div>
       <div class="source-grid" id="source-grid">
         <a class="source-card source-vuls" data-source="vuls" href="https://github.com/future-architect/vuls" target="_blank" rel="noreferrer"><span class="source-icon">V</span><span><b>Vuls</b><small>agentless scanner</small></span><i class="source-state">bridge</i></a>
@@ -71,7 +72,7 @@
       </div>
     </section>
 
-    <section class="kpi-grid" aria-label="Live metrics">
+    <section class="kpi-grid" aria-label="Live metrics" data-views="overview findings hunt">
       <div class="metric-card metric-neutral"><span class="metric-label">Files scanned</span><strong id="kpi-scanned">0</strong><small id="kpi-scanned-sub">session total</small><span class="metric-glyph">▦</span></div>
       <div class="metric-card metric-danger"><span class="metric-label">Detections</span><strong id="kpi-matches">0</strong><small id="kpi-matches-sub">YARA rule hits</small><span class="metric-glyph">⌁</span></div>
       <div class="metric-card metric-amber"><span class="metric-label">Open alerts</span><strong id="kpi-open">0</strong><small>awaiting triage</small><span class="metric-glyph">!</span></div>
@@ -82,12 +83,26 @@
 
     <section class="workspace-grid">
       <div class="workspace-main">
-        <div class="panel findings-panel">
+        <div class="panel findings-panel" data-views="overview findings">
           <div class="panel-head"><div><div class="section-kicker">01 / Detection stream</div><h2>Findings</h2></div><span class="tag" id="findings-count">0 shown</span></div>
           <div class="toolbar"><label class="search-box"><span>⌕</span><input type="search" id="q" placeholder="Search file, rule, hash, account..."></label><select id="f-sev"><option value="all">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="info">Info</option></select><select id="f-status"><option value="all">All statuses</option><option value="new">New</option><option value="acknowledged">Acknowledged</option><option value="resolved">Resolved</option><option value="false_positive">False positive</option></select><select id="f-type"><option value="yara_match">Detections</option><option value="all">All events</option><option value="scan">Clean scans</option><option value="error">Errors</option></select><button class="danger-btn clear-lines-btn" id="btn-clear-lines" title="Back up and clear active findings, feed, and triage lines" aria-label="Clear dashboard lines">Clear lines</button></div>
           <div class="table-wrap"><table><thead><tr><th>Severity</th><th>Time</th><th>File</th><th>Rules</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table><div class="empty" id="empty"><span class="empty-orbit">⊙</span><b>No signals in the room</b><span>Drop a file into the watched folder or run an on-demand scan.</span></div></div>
         </div>
-        <div class="panel ioc-panel">
+        <div class="panel hunt-panel" data-views="hunt">
+          <div class="panel-head"><div><div class="section-kicker">13 / Hunt</div><h2>Query the detection set</h2></div><span class="tag" id="hunt-status">Enter a query.</span></div>
+          <div class="body">
+            <div class="hunt-bar">
+              <input type="text" id="hunt-q" placeholder="severity:critical AND NOT status:resolved" spellcheck="false" autocomplete="off">
+              <button class="action-btn" id="hunt-run">Run</button>
+              <button class="action-btn ghost" id="hunt-save">Save</button>
+            </div>
+            <div class="hunt-help">Fields: <code>severity status type rule namespace tag file sha256 technique tactic note</code> &middot; combine with <code>AND OR NOT</code> and parentheses &middot; <code>*</code> and <code>?</code> wildcards &middot; a bare word is free text</div>
+            <div class="hunt-saved-row"><span class="hunt-saved-label">Saved</span><div id="hunt-saved"></div></div>
+            <div class="hunt-examples" id="hunt-examples"></div>
+            <div class="table-wrap"><table><thead><tr><th>Severity</th><th>Time</th><th>File</th><th>Rules</th><th>ATT&amp;CK</th></tr></thead><tbody id="hunt-rows"></tbody></table></div>
+          </div>
+        </div>
+        <div class="panel ioc-panel" data-views="overview indicators">
           <div class="panel-head"><div><div class="section-kicker">10 / Pivot</div><h2>Extracted indicators</h2></div><div class="ioc-actions"><select id="ioc-type"><option value="all">All types</option><option value="url">URLs</option><option value="domain">Domains</option><option value="ipv4">IPv4</option><option value="onion">Onion</option><option value="btc">Bitcoin</option><option value="xmr">Monero</option><option value="eth">Ethereum</option><option value="email">Email</option><option value="cve">CVE</option><option value="registry">Registry</option><option value="filepath">File paths</option><option value="sha256">SHA-256</option><option value="md5">MD5</option></select><label class="ioc-toggle"><input type="checkbox" id="ioc-external"> external only</label><button class="action-btn" id="ioc-export">Export CSV</button></div></div>
           <div class="body">
             <div class="ioc-summary" id="ioc-summary"></div>
@@ -95,15 +110,15 @@
             <div class="hint">Observables pulled from files that tripped a rule. Values are defanged for safe pasting; the raw form is in the CSV export.</div>
           </div>
         </div>
-        <div class="panel attack-panel">
+        <div class="panel attack-panel" data-views="attack">
           <div class="panel-head"><div><div class="section-kicker">12 / Tradecraft</div><h2>ATT&amp;CK coverage</h2></div><span class="tag" id="attack-note">mapping&hellip;</span></div>
           <div class="body">
             <div class="attack-legend"><span><i class="heat-key cold"></i> rules loaded, nothing seen</span><span><i class="heat-key warm"></i> detections observed</span><span class="faint">click a technique to filter the stream</span></div>
             <div class="attack-matrix" id="attack-matrix"></div>
           </div>
         </div>
-        <div class="lower-panels"><div class="panel compact-panel"><div class="panel-head"><div><div class="section-kicker">02 / Pulse</div><h2>Detection activity</h2></div><span class="tag">last 60 minutes</span></div><div class="body"><div class="bars" id="bars"></div><div class="axis"><span>60m ago</span><span>30m</span><span>now</span></div></div></div><div class="panel compact-panel"><div class="panel-head"><div><div class="section-kicker">03 / Wire</div><h2>Live feed</h2></div><span class="live-key"><i class="status-dot live"></i> live</span></div><div class="body"><div class="feed" id="feed"></div></div></div></div>
-        <div class="panel remediation-panel">
+        <div class="lower-panels" data-views="overview"><div class="panel compact-panel"><div class="panel-head"><div><div class="section-kicker">02 / Pulse</div><h2>Detection activity</h2></div><span class="tag">last 60 minutes</span></div><div class="body"><div class="bars" id="bars"></div><div class="axis"><span>60m ago</span><span>30m</span><span>now</span></div></div></div><div class="panel compact-panel"><div class="panel-head"><div><div class="section-kicker">03 / Wire</div><h2>Live feed</h2></div><span class="live-key"><i class="status-dot live"></i> live</span></div><div class="body"><div class="feed" id="feed"></div></div></div></div>
+        <div class="panel remediation-panel" data-views="overview containment">
           <div class="panel-head"><div><div class="section-kicker">11 / Remediate</div><h2>Containment</h2></div><span class="tag" id="rem-mode">manual</span></div>
           <div class="body">
             <div class="rail-strip" id="rem-rails"></div>
@@ -122,7 +137,7 @@
         </div>
       </div>
 
-      <aside class="sidebar">
+      <aside class="sidebar" data-views="overview findings intel containment">
         <div class="panel scan-panel"><div class="panel-head"><div><div class="section-kicker">04 / Probe</div><h2>On-demand scan</h2></div><span class="panel-icon">⌁</span></div><div class="body"><div class="scan-row"><input type="text" id="scan-path" placeholder="file or folder path"><button class="action-btn" id="btn-scan">Scan</button></div><div class="hint">Point the sensor at a file or tree. Results join the same convergence stream.</div><div id="scan-result" class="scan-result"></div></div></div>
         <div class="panel"><div class="panel-head"><div><div class="section-kicker">05 / Weight</div><h2>Severity breakdown</h2></div></div><div class="body" id="sev-breakdown"></div></div>
         <div class="panel"><div class="panel-head"><div><div class="section-kicker">06 / Rule heat</div><h2>Top rules</h2></div></div><div class="body"><div class="list" id="top-rules"><span class="faint">No hits yet.</span></div></div></div>
@@ -134,6 +149,13 @@
   </main>
   <footer class="footer"><span>Security Suite / convergence console</span><span id="footer-sources">NVD · OSV · VirusTotal optional · KEV · GitHub · Vuls · ClawFire linked</span></footer>
 </div>
-<script src="/app.js"></script>
+<div class="palette-overlay" id="palette" hidden>
+  <div class="palette">
+    <input type="text" id="palette-input" placeholder="Jump to a view, run a saved hunt, reload rules&hellip;" spellcheck="false" autocomplete="off">
+    <ul class="palette-list" id="palette-list"></ul>
+    <div class="palette-foot"><kbd>&uarr;</kbd><kbd>&darr;</kbd> move <kbd>&crarr;</kbd> run <kbd>esc</kbd> close</div>
+  </div>
+</div>
+<script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -93,6 +93,29 @@ def main() -> int:
         assert_true(status == 200, "favicon should be served, got %s" % status)
         assert_true(len(body) > 0, "favicon body was empty")
 
+        # Hunt endpoint: a good query answers, a bad one explains itself with
+        # a 200 and an error field rather than a crash.
+        status, body = get(base, "/api/hunt?q=severity%3Ahigh")
+        assert_true(status == 200, "hunt query failed: %s" % status)
+        assert_true(b'"matched"' in body, "hunt result missing match count")
+        status, body = get(base, "/api/hunt?q=bogus%3Ax")
+        assert_true(status == 200, "bad hunt query should answer, got %s" % status)
+        assert_true(b"unknown field" in body, "bad query did not explain itself")
+
+        # ES modules must be reachable, or the console does not boot at all.
+        for path in ("/js/core.js", "/js/router.js", "/js/hunt.js",
+                     "/js/palette.js", "/js/attack.js"):
+            status, _ = get(base, path)
+            assert_true(status == 200, "%s returned %s" % (path, status))
+
+        # ...but the containment fix must still hold: no escaping web/.
+        for path in ("/js/../securitysuite/config.py", "/js/../../requirements.txt",
+                     "/../securitysuite/server.js"):
+            status, body = get(base, path)
+            assert_true(status == 404, "%s should be refused, got %s" % (path, status))
+            assert_true(b"import" not in body and b"yara-python" not in body,
+                        "%s leaked file contents" % path)
+
         # Core reads still work.
         for path in ("/", "/app.js", "/styles.css", "/api/state",
                      "/api/rules", "/api/findings", "/api/iocs"):
