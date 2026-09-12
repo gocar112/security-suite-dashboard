@@ -8,6 +8,7 @@ rule XMRig_Stratum_Config_Strings : suspicious
     meta:
         description = "XMRig-style miner configuration or stratum pool connection strings"
         severity = "high"
+        mitre = "T1496"
         author = "security-suite"
     strings:
         $a1 = "xmrig" nocase
@@ -24,6 +25,7 @@ rule Mining_Process_Commandline_Flags : suspicious
     meta:
         description = "Process command line built with typical cryptomining flags"
         severity = "high"
+        mitre = "T1496"
     strings:
         $f1 = "--donate-level" nocase
         $f2 = "--cpu-priority" nocase
@@ -39,6 +41,7 @@ rule Browser_Based_Mining_Script : suspicious
     meta:
         description = "Web page embedding a browser cryptomining script"
         severity = "medium"
+        mitre = "T1496"
     strings:
         $a1 = "coinhive" nocase
         $a2 = "CoinHive.Anonymous" nocase

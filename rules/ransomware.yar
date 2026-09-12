@@ -9,6 +9,7 @@ rule LockBit_Indicators : malware
     meta:
         description = "Strings and note filenames associated with LockBit ransomware"
         severity = "critical"
+        mitre = "T1486"
         author = "security-suite"
     strings:
         $a1 = "LockBit" nocase
@@ -24,6 +25,7 @@ rule Conti_Indicators : malware
     meta:
         description = "Strings and note filenames associated with Conti ransomware"
         severity = "critical"
+        mitre = "T1486"
     strings:
         $a1 = "CONTI_LOG" nocase
         $a2 = "conti_readme" nocase
@@ -39,6 +41,7 @@ rule Sodinokibi_REvil_Indicators : malware
     meta:
         description = "Strings associated with Sodinokibi / REvil ransomware"
         severity = "critical"
+        mitre = "T1486"
     strings:
         $a1 = "Sodinokibi" nocase
         $a2 = "REvil" nocase
@@ -54,6 +57,7 @@ rule Ransom_Note_Filename_Reference : suspicious
     meta:
         description = "Code that writes a file using a well known ransom note filename"
         severity = "high"
+        mitre = "T1486"
     strings:
         $w1 = "CreateFile" nocase
         $w2 = "WriteFile" nocase
@@ -72,6 +76,7 @@ rule Cryptocurrency_Wallet_Near_Extortion_Text : malware
     meta:
         description = "A cryptocurrency wallet reference alongside file-encryption extortion language"
         severity = "critical"
+        mitre = "T1486"
     strings:
         $w1 = "bitcoin wallet" nocase
         $w2 = "monero wallet" nocase

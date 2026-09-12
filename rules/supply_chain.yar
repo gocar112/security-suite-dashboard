@@ -12,6 +12,7 @@ rule NPM_Install_Hook_Executes_Code : malware
     meta:
         description = "Package manifest running code from an install lifecycle hook"
         severity = "critical"
+        mitre = "T1195.002"
         author = "security-suite"
     strings:
         $m1 = "\"scripts\""
@@ -34,6 +35,7 @@ rule Python_Setup_Executes_On_Install : malware
     meta:
         description = "setup.py or pyproject hook running commands during installation"
         severity = "critical"
+        mitre = "T1195.002"
     strings:
         $s1 = "setuptools" nocase
         $s2 = "from distutils" nocase
@@ -56,6 +58,7 @@ rule Package_Obfuscated_Payload : suspicious
     meta:
         description = "Package file hiding its payload behind encoding or a long literal"
         severity = "high"
+        mitre = "T1027"
     strings:
         $p1 = "package.json" nocase
         $p2 = "setup.py" nocase
@@ -79,6 +82,7 @@ rule CI_Secret_Harvesting : malware
     meta:
         description = "Build-time code reading CI secrets and sending them outbound"
         severity = "critical"
+        mitre = "T1552,T1041"
     strings:
         $v1 = "GITHUB_TOKEN" nocase
         $v2 = "AWS_SECRET_ACCESS_KEY" nocase
@@ -102,6 +106,7 @@ rule Build_Pipeline_Tampering : suspicious
     meta:
         description = "Workflow or build file modified to fetch and run remote content"
         severity = "high"
+        mitre = "T1195.002"
     strings:
         $w1 = ".github/workflows" nocase
         $w2 = "gitlab-ci.yml" nocase
@@ -125,6 +130,7 @@ rule Typosquat_Install_Beacon : suspicious
     meta:
         description = "Install-time script beaconing host details to a remote collector"
         severity = "high"
+        mitre = "T1195.002,T1071.001"
     strings:
         $i1 = "postinstall" nocase
         $i2 = "setup.py" nocase

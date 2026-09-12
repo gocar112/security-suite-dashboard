@@ -109,6 +109,23 @@ def main() -> int:
         except urllib.error.HTTPError as exc:
             assert_true(exc.code == 403, "expected 403, got %d" % exc.code)
 
+        # A refused POST must still drain its request body. protocol_version
+        # is HTTP/1.1, so an unread body is parsed as the next request line and
+        # resets the connection instead of delivering the refusal. Several in a
+        # row, then a normal read, proves the socket stayed in sync.
+        for _ in range(5):
+            request = urllib.request.Request(
+                base + "/api/findings/clear", data=b'{"confirm":true}' * 8,
+                headers={"Content-Type": "text/plain"}, method="POST")
+            try:
+                urllib.request.urlopen(request, timeout=10)
+                raise AssertionError("non-JSON POST was accepted")
+            except urllib.error.HTTPError as exc:
+                assert_true(exc.code == 403, "expected 403, got %d" % exc.code)
+        status, _ = get(base, "/api/state")
+        assert_true(status == 200,
+                    "server unusable after refused POSTs (body left in buffer)")
+
         # /api/state reports stream health.
         status, body = get(base, "/api/state")
         assert_true(b"dropped_subscribers" in body,

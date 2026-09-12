@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from securitysuite import attack
 from securitysuite.config import load_config
 from securitysuite.engine import YaraEngine
 from securitysuite.ioc import extract
@@ -186,6 +187,55 @@ def test_ids_are_stable_across_reload() -> None:
 
 
 
+def test_attack_mapping() -> None:
+    """Every handwritten rule carries a technique id that the table knows."""
+    cfg = load_config()
+    index = YaraEngine(cfg.rules_dir, cfg.max_file_bytes).info()["rules"]
+    handwritten = [r for r in index if r["namespace"] != "nvd_components"]
+    assert_true(len(handwritten) >= 70, "handwritten ruleset shrank unexpectedly")
+
+    # Two demo fixtures are deliberately unmapped: they are test material, not
+    # adversary behaviour, and tagging them would put phantom coverage in the
+    # matrix.
+    unmapped = [r["rule"] for r in handwritten if not r.get("mitre")]
+    assert_true(set(unmapped) <= {"Demo_TestKeyword", "EICAR_Test_File"},
+                "unmapped rules: %s" % unmapped)
+
+    # Every id referenced by a rule must exist in the embedded table, or the
+    # matrix renders a technique it cannot name or place in a tactic.
+    for rule in handwritten:
+        for technique_id in rule.get("mitre") or []:
+            assert_true(technique_id in attack.TECHNIQUES,
+                        "%s maps to unknown technique %s" % (rule["rule"], technique_id))
+
+    # The generated ruleset is mapped by namespace, not rule by rule.
+    generated = [r for r in index if r["namespace"] == "nvd_components"]
+    if generated:
+        assert_true(all(r.get("mitre") == ["T1190"] for r in generated[:50]),
+                    "generated rules lost their namespace default")
+
+
+def test_attack_resolves_on_a_real_match() -> None:
+    """A scan result carries ATT&CK context, and coverage counts it."""
+    cfg = load_config()
+    engine = YaraEngine(cfg.rules_dir, cfg.max_file_bytes)
+    result = engine.scan_bytes(
+        b"ALL YOUR FILES HAVE BEEN ENCRYPTED. Send bitcoin for the decryption key.",
+        "ransom-note")
+    assert_true(result["matches"], "ransom note sample did not match any rule")
+    techniques = {t["id"] for m in result["matches"] for t in m.get("attack", [])}
+    assert_true("T1486" in techniques,
+                "ransom note should map to T1486, got %s" % sorted(techniques))
+
+    cov = attack.coverage(engine.info()["rules"], [{
+        "event_type": "yara_match", "severity": "critical",
+        "matches": result["matches"]}])
+    impact = next(c for c in cov["tactics"] if c["id"] == "impact")
+    assert_true(impact["detected"] >= 1, "Impact tactic showed no detection")
+    assert_true(cov["covered_techniques"] > 0, "coverage found no mapped techniques")
+
+
+
 def main() -> int:
     test_ruleset()
     test_ioc_extraction()
@@ -194,6 +244,8 @@ def main() -> int:
     test_overflowed_subscriber_is_notified()
     test_triage_survives_memory_window()
     test_ids_are_stable_across_reload()
+    test_attack_mapping()
+    test_attack_resolves_on_a_real_match()
     print("CI smoke tests passed")
     return 0
 

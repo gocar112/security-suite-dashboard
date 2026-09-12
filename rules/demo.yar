@@ -34,6 +34,7 @@ rule High_Entropy_Executable : suspicious
     meta:
         description = "PE file whose body looks packed or encrypted"
         severity = "medium"
+        mitre = "T1027.002"
     strings:
         $mz = { 4D 5A }
     condition:
