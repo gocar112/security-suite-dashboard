@@ -172,6 +172,43 @@ function syncControls() {
   document.body.classList.toggle("focus-mode", state.focusMode);
 }
 
+function renderSourceFooter(sources) {
+  const footer = $("footer-sources");
+  if (!footer) return;
+  const sourceNames = {
+    nvd: "NVD",
+    osv: "OSV",
+    virustotal: "VirusTotal",
+    kev: "KEV",
+    github: "GitHub",
+    vuls: "Vuls",
+    clawfire: "ClawFire",
+  };
+  const live = [];
+  const ready = [];
+  const optional = [];
+  const linked = [];
+  (sources || []).forEach((source) => {
+    const name = sourceNames[source.id] || source.name || source.id;
+    if (!name) return;
+    if (source.status === "online") {
+      live.push(name);
+    } else if (source.status === "ready") {
+      ready.push(name);
+    } else if (source.status === "optional" || source.configured === false) {
+      optional.push(name);
+    } else {
+      linked.push(name);
+    }
+  });
+  const parts = [];
+  if (live.length) parts.push(live.join(" / ") + " live");
+  if (ready.length) parts.push(ready.join(" / ") + " ready");
+  if (optional.length) parts.push(optional.join(" / ") + " optional");
+  if (linked.length) parts.push(linked.join(" / ") + " catalog/reference");
+  footer.textContent = parts.join(" \u00b7 ") || "Local intelligence mode";
+}
+
 async function loadIntel() {
   try {
     const data = await api("/api/intel");
@@ -201,10 +238,12 @@ async function loadIntel() {
     }
     $("intel-status").textContent = data.status || "linked";
     $("intel-sync").textContent = "Synced " + clockOf(data.synced_at);
+    renderSourceFooter(sources);
   } catch (_) {
     // The source lattice still renders when the optional adapter endpoint is offline.
     $("intel-status").textContent = "local mode";
     $("intel-sync").textContent = "Local adapters ready";
+    renderSourceFooter([]);
   }
 }
 
@@ -890,6 +929,20 @@ function connectStream() {
     $("rows").prepend(tr);
     $("empty").style.display = "none";
     $("findings-count").textContent = state.findings.length + " shown";
+  });
+  // The server closes the stream when this client fell so far behind that the
+  // store dropped it from the event bus. Without this the socket stayed open
+  // and kept delivering stats frames, so the dashboard read "live" while no
+  // longer receiving any findings. Resync from the API, then reconnect onto a
+  // fresh subscription.
+  source.addEventListener("overflow", () => {
+    $("stream-dot").className = "dot down";
+    $("stream-text").textContent = "resyncing";
+    toast("Event stream fell behind - resyncing", true);
+    source.close();
+    loadFindings();
+    refresh();
+    setTimeout(connectStream, 1000);
   });
   source.onerror = () => {
     $("stream-dot").className = "dot down";

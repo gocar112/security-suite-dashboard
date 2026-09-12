@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
-
 :root {
   --ink: #07111f;
   --ink-2: #0b1a2b;
@@ -18,8 +16,8 @@
   --blue: #6db7ff;
   --lilac: #b79cff;
   --ok: #64e5ad;
-  --mono: 'IBM Plex Mono', 'Cascadia Mono', Consolas, monospace;
-  --sans: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'Cascadia Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  --sans: 'Aptos', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
 }
 
 * { box-sizing: border-box; }
