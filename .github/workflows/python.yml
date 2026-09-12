@@ -37,11 +37,15 @@ jobs:
 
       - name: Compile Python package
         shell: pwsh
-        run: python -m compileall securitysuite tools
+        run: python -m compileall securitysuite tools tests
 
       - name: Validate dashboard JavaScript
         shell: pwsh
         run: node --check web/app.js
+
+      - name: Run smoke tests
+        shell: pwsh
+        run: python tests/smoke.py
 
       - name: Generate database summary
         shell: pwsh
