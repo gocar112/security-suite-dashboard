@@ -71,6 +71,12 @@ securitysuite/
   watcher.py            polling monitor with settle detection
   store.py              NDJSON store, in-memory index, SSE pub/sub, triage
   server.py             HTTP API + SSE + static files
+  net.py                shared TLS context (certifi) + JSON helpers
+  nvd.py                NVD CVE API 2.0 client + local cache
+  osv.py                OSV.dev lookup by commit / package / purl
+assets/securitysuite.ico  desktop shortcut icon
+book/                   the field guide (pdf + docx)
+nvds/                   NVD cache (contents gitignored)
 rules/
   demo.yar              test keyword, EICAR, high-entropy PE
   webshell.yar          PHP / ASPX / JSP backdoors
@@ -151,6 +157,84 @@ that fails to compile is reported by name in the Ruleset panel — the rest stil
 
 ---
 
+## Vulnerability intelligence
+
+Three of the seven lattice sources are live adapters that make real requests;
+the rest are labelled links. A card only shows `online` once a request has
+actually succeeded.
+
+| Source | Credential | What it answers |
+| --- | --- | --- |
+| **NVD** | optional | Browse CVEs by id, keyword, or modification window. ~390,000 records. |
+| **OSV** | none | "Is *this* artifact vulnerable?" — query by commit, package, or purl. |
+| **VirusTotal** | required | File and hash reputation. |
+
+```bash
+# Sync the trailing 3 days of CVEs into ./nvds
+curl -s -X POST http://127.0.0.1:8787/api/nvd/sync \
+     -H "Content-Type: application/json" -d '{"days": 3}'
+
+# Is a source commit affected by anything known?
+curl -s -X POST http://127.0.0.1:8787/api/osv/query \
+     -H "Content-Type: application/json" \
+     -d '{"commit": "6879efc2c1596d11a6a6ad296f80063b558d5e0f"}'
+
+# One CVE
+curl -s "http://127.0.0.1:8787/api/nvd/cve?id=CVE-2021-44228"
+```
+
+NVD works with no key at 5 requests per 30 s; a free key raises that to 50.
+OSV needs no credential at all. VirusTotal does no work without one.
+
+### Credentials
+
+Copy `.env.example` to `.env` and fill in what you have. `.env` is gitignored,
+credentials are stripped from `config.json` on save, and no endpoint ever
+returns a key — `/api/intel` reports only whether one is *configured* and
+whether it *works*.
+
+```
+VIRUSTOTAL_API_KEY=      # required for the VirusTotal card
+NVD_API_KEY=             # optional; only raises the rate limit
+```
+
+### A note on TLS
+
+Python on Windows often has no CA file of its own (`ssl.get_default_verify_paths()`
+returns `cafile: None`) and fails to verify `services.nvd.nist.gov` with a
+misleading `certificate has expired`. The server certificate is fine — the local
+trust store is not. `securitysuite/net.py` carries `certifi`'s bundle instead.
+Verification is never disabled.
+
+---
+
+## Desktop shortcut (Windows)
+
+`assets/securitysuite.ico` is a six-resolution icon for a desktop shortcut.
+Point the shortcut at your Python, with this folder as the working directory:
+
+```powershell
+$ws = New-Object -ComObject WScript.Shell
+$lnk = $ws.CreateShortcut("$([Environment]::GetFolderPath('Desktop'))\Security Suite.lnk")
+$lnk.TargetPath       = (Get-Command python).Source
+$lnk.Arguments        = 'run.py'
+$lnk.WorkingDirectory = $PWD.Path
+$lnk.IconLocation     = "$($PWD.Path)\assets\securitysuite.ico,0"
+$lnk.Save()
+```
+
+---
+
+## The book
+
+`book/Detection-Engineering-in-Practice.{pdf,docx}` is a field guide to SOC
+detection engineering that uses this repository as its running case study —
+YARA rule design, the race conditions in the file watcher, telemetry
+correlation, triage economics, and the intel adapters above. Second edition,
+~18,000 words.
+
+---
+
 ## Configuration
 
 Defaults live in `securitysuite/config.py`. To override, create `config.json` in
@@ -190,7 +274,14 @@ loopback name (DNS-rebinding guard).
 | GET | `/api/findings?severity=&status=&type=&q=&limit=` | filtered findings |
 | GET | `/api/rules` | loaded rules and any compile errors |
 | GET | `/api/telemetry?force=1` | recent auth failures |
-| GET | `/api/intel` | source lattice health (VirusTotal key is never returned) |
+| GET | `/api/intel` | source lattice health (no credential is ever returned) |
+| GET | `/api/nvd` | NVD cache status: records cached, window, rate limit, TLS bundle |
+| GET | `/api/nvd/cves?limit=&severity=` | cached CVEs, highest CVSS first |
+| GET | `/api/nvd/cve?id=CVE-...` | one CVE, cached on disk after first fetch |
+| GET | `/api/nvd/search?q=&limit=` | live keyword search against the NVD API |
+| POST | `/api/nvd/sync` | `{"days": 3}` — sync the trailing window into the cache |
+| GET&nbsp;/&nbsp;POST | `/api/osv/query` | lookup by `commit`, `purl`, or `package`+`ecosystem`+`version` |
+| GET | `/api/osv` | OSV adapter status |
 | GET | `/api/stream` | Server-Sent Events: `hello`, `event`, `stats` |
 | POST | `/api/scan` | `{"path": "..."}` — scan a file or tree |
 | POST | `/api/monitor` | `{"action": "pause"\|"resume"}` |

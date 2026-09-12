@@ -8,6 +8,8 @@ import webbrowser
 
 from .config import load_config
 from .engine import YaraEngine
+from .nvd import NvdClient
+from .osv import OsvClient
 from .server import serve
 from .store import EventStore
 from .telemetry import AuthTelemetry
@@ -61,13 +63,15 @@ def build(args):
         cfg.auth_log_path, cfg.lookback_minutes,
         cfg.telemetry_cache_seconds, cfg.max_telemetry_events,
     )
+    nvd = NvdClient(cfg.nvd_cache_dir, cfg.nvd_api_key)
+    osv = OsvClient(cfg.osv_cache_dir)
     monitor = Monitor(cfg, engine, store, telemetry)
-    return cfg, engine, store, telemetry, monitor
+    return cfg, engine, store, telemetry, monitor, nvd, osv
 
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    cfg, engine, store, telemetry, monitor = build(args)
+    cfg, engine, store, telemetry, monitor, nvd, osv = build(args)
 
     info = engine.info()
     print(BANNER)
@@ -80,6 +84,11 @@ def main(argv=None) -> int:
           + telemetry_state["status"]
           + (" (" + telemetry_state.get("detail", "") + ")"
              if telemetry_state.get("detail") else ""))
+
+    nvd_state = nvd.status()
+    print("[*] NVD        : " + str(nvd_state.get("cached", 0)) + " CVEs cached, "
+          + nvd_state["rate_limit"] + ", tls via " + nvd_state["tls_bundle"]
+          + (" (last sync " + nvd_state["last_sync"] + ")" if nvd_state.get("last_sync") else ""))
 
     if args.scan:
         import json
@@ -94,7 +103,7 @@ def main(argv=None) -> int:
     httpd = None
     if not args.headless:
         try:
-            httpd = serve(cfg, engine, store, telemetry, monitor)
+            httpd = serve(cfg, engine, store, telemetry, monitor, nvd, osv)
         except OSError as exc:
             print("[-] Could not bind " + cfg.host + ":" + str(cfg.port) + " -> " + str(exc))
             return 1

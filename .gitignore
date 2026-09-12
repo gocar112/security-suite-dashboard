@@ -3,6 +3,10 @@ data/
 config.json
 .env
 
+# Vulnerability feed cache: keep the directory, never commit the payload
+nvds/*
+!nvds/.gitkeep
+
 # Watched folder: keep the directory, never commit what lands in it
 uploads/*
 !uploads/.gitkeep

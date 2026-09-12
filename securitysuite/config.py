@@ -69,6 +69,12 @@ class Config:
 
     # --- optional external intelligence ---
     virustotal_api_key: str = field(default_factory=lambda: os.getenv("VIRUSTOTAL_API_KEY", ""))
+    # NVD needs no credential; a key only raises the rate limit (5/30s -> 50/30s).
+    nvd_api_key: str = field(default_factory=lambda: os.getenv("NVD_API_KEY", ""))
+    nvd_cache_dir: str = str(ROOT / "nvds")
+    nvd_sync_days: int = 3
+    nvd_max_records: int = 4000
+    osv_cache_dir: str = str(ROOT / "data" / "osv")
 
     @property
     def max_file_bytes(self) -> int:
@@ -78,6 +84,7 @@ class Config:
         values = asdict(self)
         # Credentials belong in the process environment, never in config.json.
         values.pop("virustotal_api_key", None)
+        values.pop("nvd_api_key", None)
         return values
 
     def save(self, path: Path | None = None) -> Path:
@@ -107,4 +114,6 @@ def load_config(path: Path | None = None) -> Config:
     for watched in cfg.watch_paths:
         os.makedirs(watched, exist_ok=True)
     os.makedirs(cfg.rules_dir, exist_ok=True)
+    os.makedirs(cfg.nvd_cache_dir, exist_ok=True)
+    os.makedirs(cfg.osv_cache_dir, exist_ok=True)
     return cfg

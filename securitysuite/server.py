@@ -41,12 +41,14 @@ INTEL_SOURCES = (
 class Context:
     """Everything the request handler needs, injected onto the server object."""
 
-    def __init__(self, cfg, engine, store, telemetry, monitor):
+    def __init__(self, cfg, engine, store, telemetry, monitor, nvd=None, osv=None):
         self.cfg = cfg
         self.engine = engine
         self.store = store
         self.telemetry = telemetry
         self.monitor = monitor
+        self.nvd = nvd
+        self.osv = osv
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -133,6 +135,47 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self.ctx.telemetry.recent(force=params.get("force") == "1"))
         elif route == "/api/intel":
             self._json(self._intel())
+        elif route == "/api/osv":
+            self._json(self.ctx.osv.status() if self.ctx.osv
+                       else {"source": "osv", "status": "disabled"})
+        elif route == "/api/osv/query":
+            if self.ctx.osv is None:
+                self._json({"error": "osv adapter not enabled"}, 503)
+                return
+            self._json(self.ctx.osv.query({
+                "commit": params.get("commit", ""),
+                "purl": params.get("purl", ""),
+                "package": params.get("package", ""),
+                "ecosystem": params.get("ecosystem", ""),
+                "version": params.get("version", ""),
+            }))
+        elif route == "/api/nvd":
+            self._json(self._nvd_status())
+        elif route == "/api/nvd/cves":
+            if self.ctx.nvd is None:
+                self._json({"error": "nvd adapter not enabled"}, 503)
+                return
+            self._json({"cves": self.ctx.nvd.cached_records(
+                limit=int(params.get("limit", 100)),
+                severity=params.get("severity", ""))})
+        elif route == "/api/nvd/cve":
+            if self.ctx.nvd is None:
+                self._json({"error": "nvd adapter not enabled"}, 503)
+                return
+            cve_id = (params.get("id") or "").strip()
+            if not cve_id:
+                self._json({"error": "id is required"}, 400)
+                return
+            self._json(self.ctx.nvd.fetch_cve(cve_id))
+        elif route == "/api/nvd/search":
+            if self.ctx.nvd is None:
+                self._json({"error": "nvd adapter not enabled"}, 503)
+                return
+            query = (params.get("q") or "").strip()
+            if not query:
+                self._json({"error": "q is required"}, 400)
+                return
+            self._json(self.ctx.nvd.search(query, int(params.get("limit", 20))))
         elif route == "/api/stream":
             self._stream()
         else:
@@ -175,6 +218,23 @@ class Handler(BaseHTTPRequestHandler):
                  "message": "Reloaded " + str(info["rule_count"]) + " rules"}
             )
             self._json(info)
+        elif route == "/api/osv/query":
+            if self.ctx.osv is None:
+                self._json({"error": "osv adapter not enabled"}, 503)
+                return
+            self._json(self.ctx.osv.query(body))
+        elif route == "/api/nvd/sync":
+            if self.ctx.nvd is None:
+                self._json({"error": "nvd adapter not enabled"}, 503)
+                return
+            days = int(body.get("days") or getattr(self.ctx.cfg, "nvd_sync_days", 3))
+            result = self.ctx.nvd.sync(days, getattr(self.ctx.cfg, "nvd_max_records", 4000))
+            self.ctx.store.broadcast({
+                "event_type": "monitor", "timestamp": now_iso(),
+                "message": "NVD sync: " + str(result.get("cached", 0)) + " CVEs cached"
+                           if "error" not in result else "NVD sync failed: " + result["error"],
+            })
+            self._json(result)
         elif route == "/api/triage":
             updated = self.ctx.store.set_status(
                 str(body.get("id", "")),
@@ -206,6 +266,11 @@ class Handler(BaseHTTPRequestHandler):
             "server_time": now_iso(),
         }
 
+    def _nvd_status(self) -> dict:
+        if self.ctx.nvd is None:
+            return {"source": "nvd", "status": "disabled"}
+        return self.ctx.nvd.status()
+
     def _intel(self) -> dict:
         """Return source adapters without ever returning credentials to clients."""
         vt_key = str(getattr(self.ctx.cfg, "virustotal_api_key", "") or "").strip()
@@ -222,14 +287,35 @@ class Handler(BaseHTTPRequestHandler):
                 vt_status = "rejected" if exc.code in (401, 403) else "rate limited" if exc.code == 429 else "configured"
             except (urllib.error.URLError, TimeoutError, OSError):
                 vt_status = "offline"
+        nvd_state = self._nvd_status()
+        nvd_cached = int(nvd_state.get("cached") or 0)
+        nvd_status = "offline" if nvd_state.get("last_error") else (
+            "syncing" if nvd_state.get("syncing") else
+            "online" if nvd_cached else "catalog")
+
         sources = []
         for source_id, url, status in INTEL_SOURCES:
-            sources.append({
+            entry = {
                 "id": source_id,
                 "url": url,
                 "status": vt_status if source_id == "virustotal" else status,
                 "configured": bool(vt_key) if source_id == "virustotal" else True,
-            })
+            }
+            if source_id == "osv" and self.ctx.osv is not None:
+                osv_state = self.ctx.osv.status()
+                entry["status"] = ("offline" if osv_state.get("last_error")
+                                   else "online" if osv_state.get("cached_queries")
+                                   else "ready")
+                entry["cached"] = osv_state.get("cached_queries", 0)
+                entry["detail"] = (str(osv_state.get("cached_queries", 0))
+                                   + " queries cached")
+            if source_id == "nvd":
+                entry["status"] = nvd_status
+                entry["cached"] = nvd_cached
+                entry["last_sync"] = nvd_state.get("last_sync")
+                entry["detail"] = (str(nvd_cached) + " CVEs cached"
+                                   if nvd_cached else "not synced yet")
+            sources.append(entry)
         return {
             "status": "live" if vt_status == "online" else "linked",
             "synced_at": now_iso(),
@@ -279,9 +365,9 @@ class DashboardServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
 
-def serve(cfg, engine, store, telemetry, monitor) -> DashboardServer:
+def serve(cfg, engine, store, telemetry, monitor, nvd=None, osv=None) -> DashboardServer:
     httpd = DashboardServer((cfg.host, cfg.port), Handler)
-    httpd.ctx = Context(cfg, engine, store, telemetry, monitor)  # type: ignore[attr-defined]
+    httpd.ctx = Context(cfg, engine, store, telemetry, monitor, nvd, osv)  # type: ignore[attr-defined]
     thread = threading.Thread(target=httpd.serve_forever, name="securitysuite-http",
                               daemon=True)
     thread.start()
