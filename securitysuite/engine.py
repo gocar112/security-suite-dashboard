@@ -16,6 +16,7 @@ from pathlib import Path
 
 import yara
 
+from .ioc import extract as extract_iocs
 from .store import SEVERITY_RANK, now_iso
 
 PREVIEW_BYTES = 48
@@ -243,10 +244,19 @@ class YaraEngine:
                 }
             )
         severity = None
+        iocs = {"indicators": [], "counts": {}, "total": 0}
         if matches:
             severity = min(
                 (m["severity"] for m in matches), key=lambda s: SEVERITY_RANK[s]
             )
+            # Only extract for files that tripped a rule: a clean scan does not
+            # need observables, and running 13 regexes over every file would
+            # dominate the scan budget.
+            try:
+                iocs = extract_iocs(sample)
+            except Exception:
+                iocs = {"indicators": [], "counts": {}, "total": 0,
+                        "error": "extraction failed"}
         return {
             "file_path": str(label),
             "file_size": size,
@@ -254,4 +264,5 @@ class YaraEngine:
             "scan_ms": round((time.perf_counter() - started) * 1000, 2),
             "matches": matches,
             "severity": severity,
+            "iocs": iocs,
         }

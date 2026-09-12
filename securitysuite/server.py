@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from .ioc import summarise, to_csv
 from .store import now_iso
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -136,6 +137,27 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self.ctx.telemetry.recent(force=params.get("force") == "1"))
         elif route == "/api/intel":
             self._json(self._intel())
+        elif route == "/api/iocs":
+            events = self.ctx.store.events(limit=2000, event_type="yara_match")
+            data = summarise(events)
+            kind = (params.get("type") or "").strip()
+            if kind and kind != "all":
+                data["indicators"] = [i for i in data["indicators"] if i["type"] == kind]
+            scope = (params.get("scope") or "").strip()
+            if scope == "external":
+                data["indicators"] = [
+                    i for i in data["indicators"]
+                    if i["type"] != "ipv4" or i.get("scope") == "external"]
+            limit = int(params.get("limit", 300))
+            data["shown"] = min(limit, len(data["indicators"]))
+            data["indicators"] = data["indicators"][:limit]
+            data["source_findings"] = len(events)
+            if params.get("format") == "csv":
+                body = to_csv(data["indicators"]).encode("utf-8")
+                self._send(200, body, "text/csv; charset=utf-8",
+                           {"Content-Disposition": 'attachment; filename="iocs.csv"'})
+                return
+            self._json(data)
         elif route == "/api/vt":
             self._json(self.ctx.vt.status() if self.ctx.vt
                        else {"source": "virustotal", "status": "disabled"})

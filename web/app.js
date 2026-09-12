@@ -316,6 +316,7 @@ function openDrawer(id) {
         '<div>' + esc(s.identifier) + ' @ 0x' + Number(s.offset).toString(16) +
         '  <span class="faint">' + esc(s.preview) + '</span></div>').join("") + '</div>' +
       '</div>').join("") : '') +
+    iocSection(finding) +
     '<h3>Correlated auth telemetry</h3>' +
     '<div class="dim" style="font-size:12.5px;margin-bottom:7px">' +
       esc(tele.source || "-") + ' &middot; status ' + esc(tele.status || "n/a") +
@@ -419,6 +420,76 @@ function feedLine(event) {
   while (feed.childElementCount > 120) feed.lastElementChild.remove();
 }
 
+
+/* --------------------------------------------------------------- IOC pivot */
+const IOC_CLASS = {
+  url: "net", domain: "host", onion: "net", ipv4: "net",
+  btc: "coin", xmr: "coin", eth: "coin",
+};
+
+async function loadIocs() {
+  const type = $("ioc-type") ? $("ioc-type").value : "all";
+  const external = $("ioc-external") && $("ioc-external").checked;
+  const params = new URLSearchParams({ limit: "300", type });
+  if (external) params.set("scope", "external");
+  try {
+    const data = await api("/api/iocs?" + params.toString());
+    renderIocs(data);
+  } catch (err) {
+    const body = $("ioc-rows");
+    if (body) body.innerHTML = "";
+  }
+}
+
+function renderIocs(data) {
+  const rows = $("ioc-rows");
+  const summary = $("ioc-summary");
+  if (!rows) return;
+  const items = data.indicators || [];
+
+  if (summary) {
+    const byType = data.by_type || {};
+    const chips = Object.keys(byType).sort((a, b) => byType[b] - byType[a]).map((k) =>
+      '<span class="ioc-chip ' + (IOC_CLASS[k] === "net" ? "hot" : "") + '">' +
+      esc(k) + ' <b>' + byType[k] + '</b></span>').join("");
+    summary.innerHTML = chips ||
+      '<span class="faint">Nothing extracted yet \u2014 indicators appear when a file trips a rule.</span>';
+  }
+
+  if (!items.length) {
+    rows.innerHTML = '<tr><td colspan="4" class="ioc-empty">' +
+      'No indicators yet. They are pulled from files that match a rule.</td></tr>';
+    return;
+  }
+
+  rows.innerHTML = items.map((i) => {
+    const cls = IOC_CLASS[i.type] || "";
+    const scope = i.scope && i.scope !== "external"
+      ? '<span class="ioc-scope">' + esc(i.scope) + '</span>' : "";
+    const files = (i.files || []).slice(0, 3).map(esc).join(", ") +
+      (i.file_count > 3 ? ' +' + (i.file_count - 3) + ' more' : "");
+    return '<tr>' +
+      '<td><span class="ioc-type ' + cls + '">' + esc(i.type) + '</span></td>' +
+      '<td class="ioc-value">' + esc(i.defanged) + scope + '</td>' +
+      '<td class="ioc-files">' + files + '</td>' +
+      '<td class="mono">' + i.occurrences + '</td>' +
+      '</tr>';
+  }).join("");
+}
+
+function iocSection(finding) {
+  const block = finding.iocs || {};
+  const items = block.indicators || [];
+  if (!items.length) return "";
+  return '<h3>Extracted indicators (' + items.length + ')</h3>' +
+    '<div class="dim" style="font-size:12px;margin-bottom:6px">' +
+    'Pulled from this file. Defanged \u2014 safe to paste into a ticket.</div>' +
+    items.map((i) =>
+      '<div class="tele-row"><span>' + esc(i.type) + '</span>' +
+      '<span class="mono" style="word-break:break-all">' + esc(i.defanged) + '</span>' +
+      '<span class="faint">' + esc(i.scope || "") + '</span></div>').join("");
+}
+
 /* --------------------------------------------------------------- lifecycle */
 async function refresh() {
   try {
@@ -427,6 +498,7 @@ async function refresh() {
     renderTelemetry(data.telemetry);
     renderRules(data.engine);
     renderSensor(data);
+    loadIocs();
     $("sub-title").textContent = data.config.watch_paths.length + " path(s) monitored";
   } catch (err) {
     toast("Backend unreachable: " + err.message, true);
@@ -500,6 +572,20 @@ function wire() {
       toast("Reloaded " + info.rule_count + " rules in " + info.compile_ms + " ms");
     } catch (err) { toast(err.message, true); }
   });
+
+  ["ioc-type", "ioc-external"].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener("change", loadIocs);
+  });
+  if ($("ioc-export")) {
+    $("ioc-export").addEventListener("click", () => {
+      const type = $("ioc-type").value;
+      const external = $("ioc-external").checked;
+      const params = new URLSearchParams({ limit: "5000", type, format: "csv" });
+      if (external) params.set("scope", "external");
+      window.open("/api/iocs?" + params.toString(), "_blank");
+    });
+  }
 
   $("btn-scan").addEventListener("click", async () => {
     const path = $("scan-path").value.trim();
