@@ -114,10 +114,16 @@ class NvdClient:
         return {"apiKey": self.api_key} if self.api_key else {}
 
     def _get(self, params: dict) -> dict:
-        query = "&".join(
-            str(k) + "=" + str(v).replace(" ", "%20").replace(":", "%3A")
-            for k, v in params.items() if v not in (None, "")
-        )
+        # NVD has valueless boolean parameters (hasKev, hasCert, isVulnerable):
+        # they must appear as a bare key, so True means "emit the flag alone".
+        parts = []
+        for key, value in params.items():
+            if value is True:
+                parts.append(str(key))
+            elif value not in (None, "", False):
+                parts.append(str(key) + "=" +
+                             str(value).replace(" ", "%20").replace(":", "%3A"))
+        query = "&".join(parts)
         self.limiter.wait()
         return get_json(BASE_URL + "?" + query, headers=self._headers(), timeout=self.timeout)
 

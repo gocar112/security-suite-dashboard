@@ -1,14 +1,14 @@
 # Security Suite
 
 A YARA-backed SOC detector with a live web dashboard, for Windows, macOS and
-Linux. It watches directories, scans new files in memory against **73 rules**,
+Linux. It watches directories, scans new files in memory against **1,004 rules**,
 correlates hits against authentication telemetry from the same time window,
 pulls the indicators back out of whatever it caught, and streams the lot to a
 browser console in real time.
 
 | | |
 | --- | --- |
-| **Detect** | 73 YARA rules across 15 namespaces — web shells, ransomware, stealers, C2, macro droppers, Linux persistence, supply-chain hooks, RMM abuse |
+| **Detect** | 1,004 YARA rules across 16 namespaces — 73 hand-written, 931 generated from CISA KEV entries — web shells, ransomware, stealers, C2, macro droppers, Linux persistence, supply-chain hooks, RMM abuse |
 | **Correlate** | Failed logons from the same window: Windows Security log, macOS unified log, or `auth.log`/journald |
 | **Pivot** | URLs, domains, IPs, wallets, CVEs and paths extracted from every detection, defanged, with CSV export |
 | **Enrich** | Live NVD, OSV and VirusTotal adapters — no credential needed for the first two |
@@ -139,7 +139,7 @@ securitysuite/
 assets/securitysuite.ico  desktop shortcut icon
 book/                   the field guide (pdf + docx)
 nvds/                   NVD cache (contents gitignored)
-rules/                  73 rules; each file is one YARA namespace
+rules/                  1,004 rules; each file is one YARA namespace
   c2_network.yar          beacons, reverse shells, DNS tunnelling
   credential_theft.yar    LSASS dumping, browser stores, keylogging
   cryptominer.yar         miner config, stratum pools, browser mining
@@ -159,6 +159,8 @@ rules/                  73 rules; each file is one YARA namespace
   webshell.yar            PHP / ASPX / JSP backdoors
   windows_threats.yar     encoded PowerShell, download cradles, credential
                           dumpers, shadow-copy deletion, ransom notes
+  generated/              931 vulnerable-component rules built from NVD;
+                          regenerate with generate_rules.py, safe to delete
 samples/                harmless text files that trip specific rules
 uploads/                the watched folder (starts empty)
 data/findings.ndjson    append-only alert log
@@ -236,6 +238,43 @@ Without `meta.severity` the tag is used (`malware` → high, `suspicious` → me
 `test` → info); with neither, the finding defaults to medium. Each file becomes its
 own YARA namespace, so rule names only need to be unique within a file. A rule file
 that fails to compile is reported by name in the Ruleset panel — the rest still load.
+
+---
+
+## Generated rules
+
+`generate_rules.py` turns NVD's structured CPE data into vulnerable-component
+rules — *is a known-exploited component present in this artifact?*
+
+```bash
+python generate_rules.py --limit 1000 --dry-run   # report the tally
+python generate_rules.py --limit 1000             # write rules/generated/
+```
+
+The shipped set is 931 rules, every one derived from a **CISA KEV** entry: a
+vulnerability confirmed to be exploited in the wild. Nothing is invented — each
+rule's product, version and CVE come from NVD.
+
+**The gate matters more than the count.** A candidate ships only if its product
+name is distinctive, it has a concrete affected version, it compiles, and it
+fires on none of a benign corpus built from this repository's own files:
+
+```
+Candidates    : 1000
+Survived gate :  931
+Rejected      :  54 product name too short
+                  9 characters that do not survive matching
+                  3 product name too generic
+                  3 duplicate rule name
+```
+
+Severity reflects that these detect **exposure, not compromise**. A vulnerable
+library is a review item, not an interrupt — KEV entries are `high`, everything
+else `medium` or `low`. Labelling them critical would wreck the scale the
+hand-written rules depend on.
+
+Cost: compile time 79 ms → 537 ms (once, at startup or reload); per-file scan
+time is unchanged at ~3 ms. Delete `rules/generated/` to opt out entirely.
 
 ---
 
