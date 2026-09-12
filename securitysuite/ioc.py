@@ -51,6 +51,10 @@ PATTERNS = {
     "registry": re.compile(
         rb"\b(?:HKEY_[A-Z_]+|HKLM|HKCU|HKCR|HKU)\\[A-Za-z0-9\\_\-. ]{3,140}"),
     "filepath": re.compile(rb"\b[A-Za-z]:\\\\?[A-Za-z0-9\\_\-. ()]{4,140}"),
+    # POSIX paths under directories an intrusion actually touches, so
+    # ordinary prose mentioning /home or a URL path does not qualify.
+    "posixpath": re.compile(
+        rb"(?:/etc/|/tmp/|/var/tmp/|/dev/shm/|/usr/local/bin/|/root/|/home/)[A-Za-z0-9._\-/]{1,120}"),
     "cve": re.compile(rb"\bCVE-\d{4}-\d{4,7}\b", re.IGNORECASE),
     "sha256": re.compile(rb"\b[a-fA-F0-9]{64}\b"),
     "md5": re.compile(rb"\b[a-fA-F0-9]{32}\b"),
@@ -199,7 +203,7 @@ def extract(raw: bytes, want_context: bool = True) -> dict:
     # Most interesting types first, then by how often they appear.
     priority = {"url": 0, "onion": 1, "domain": 2, "ipv4": 3, "btc": 4, "xmr": 5,
                 "eth": 6, "email": 7, "cve": 8, "registry": 9, "sha256": 10,
-                "md5": 11, "filepath": 12}
+                "md5": 11, "filepath": 12, "posixpath": 13}
     indicators.sort(key=lambda i: (priority.get(i["type"], 99), -i["count"]))
 
     counts: dict = {}

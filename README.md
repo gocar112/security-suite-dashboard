@@ -18,16 +18,61 @@ Then open <http://127.0.0.1:8787> (it opens automatically).
 
 | Package | Status | Needed for |
 | --- | --- | --- |
-| `yara-python` | **required** | the detection engine |
-| `pywin32` | optional (Windows) | reading failed logons from the Security event log |
+| `yara-python` | **required** | the detection engine, every platform |
+| `certifi` | recommended | a current CA bundle; without it NVD may fail TLS verification |
+| `pywin32` | Windows only, optional | reading failed logons from the Security event log |
 
-Both are already installed on this machine. There is no web framework
-dependency: the server is `http.server` from the standard library, and the
-dashboard is plain HTML/CSS/JS. Nothing to `pip install`, nothing to build.
+There is no web framework dependency: the server is `http.server` from the
+standard library and the dashboard is plain HTML/CSS/JS. Nothing to build.
+Python 3.10 or newer.
 
 ```bash
 pip install -r requirements.txt   # only if you move this to another machine
 ```
+
+---
+
+## Platform support
+
+Runs on Windows, macOS and Linux. Detection is identical everywhere — it is
+byte matching over files. What differs is where authentication telemetry comes
+from, so each platform gets an ordered chain of providers and the dashboard
+reports which one answered.
+
+| | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| File monitoring, YARA, IOC extraction | yes | yes | yes |
+| Dashboard, API, SSE | yes | yes | yes |
+| Intel adapters (NVD / OSV / VirusTotal) | yes | yes | yes |
+| Auth telemetry source | Security event log | unified log (`log show`) | `auth.log` / `secure`, else `journalctl` |
+| Extra privilege for telemetry | Administrator | usually none | read access to the log or the `systemd-journal` group |
+| Desktop launcher | `.lnk` | `.command` | `.desktop` |
+
+There is no `/var/log/auth.log` on a modern macOS, and several Linux
+distributions ship journald with no text auth log at all — so the chain tries
+each source in turn and reports what it found:
+
+```json
+{ "platform": "linux", "source": "journald", "status": "ok",
+  "attempts": [ {"provider": "auth_log",  "status": "unavailable"},
+                {"provider": "journald",  "status": "ok"} ] }
+```
+
+If every provider fails the result is **never** reported as a successful empty
+read. "No failed logons" and "nothing could read the logs" must not look the
+same — that distinction is the whole point of the `status` field.
+
+### Desktop launcher
+
+```bash
+python install_shortcut.py            # create one for this OS
+python install_shortcut.py --remove   # take it away again
+```
+
+Writes a `.lnk` on Windows, a `.command` on macOS, and a `.desktop` entry on
+Linux (both on the desktop and in the applications menu). Nothing is installed
+system-wide and nothing needs elevation. Some Linux desktops require *Allow
+Launching* from the file's context menu the first time.
 
 ---
 
@@ -115,7 +160,11 @@ web/                    dashboard
 Start the suite, then copy a sample into the watched folder:
 
 ```bash
+# Windows
 copy samples\README_RESTORE.txt uploads\
+
+# macOS / Linux
+cp samples/README_RESTORE.txt uploads/
 ```
 
 The row appears in the dashboard within about two seconds — no refresh — as a
@@ -142,9 +191,10 @@ The row appears in the dashboard within about two seconds — no refresh — as 
 
 ```bash
 python run.py                          # monitor + dashboard
-python run.py --watch D:\ftp --watch E:\inbox
+python run.py --watch D:\ftp --watch E:\inbox        # Windows
+python run.py --watch /srv/ftp --watch /var/spool/in   # macOS / Linux
 python run.py --port 9000 --no-browser
-python run.py --scan C:\Users\me\Downloads   # one-shot scan, JSON to stdout, exit
+python run.py --scan ~/Downloads       # one-shot scan, JSON to stdout, exit
 python run.py --headless               # monitor only, no web server
 python run.py --scan-existing          # also scan files already present at startup
 ```
@@ -268,22 +318,6 @@ Verification is never disabled.
 
 ---
 
-## Desktop shortcut (Windows)
-
-`assets/securitysuite.ico` is a six-resolution icon for a desktop shortcut.
-Point the shortcut at your Python, with this folder as the working directory:
-
-```powershell
-$ws = New-Object -ComObject WScript.Shell
-$lnk = $ws.CreateShortcut("$([Environment]::GetFolderPath('Desktop'))\Security Suite.lnk")
-$lnk.TargetPath       = (Get-Command python).Source
-$lnk.Arguments        = 'run.py'
-$lnk.WorkingDirectory = $PWD.Path
-$lnk.IconLocation     = "$($PWD.Path)\assets\securitysuite.ico,0"
-$lnk.Save()
-```
-
----
 
 ## The book
 
