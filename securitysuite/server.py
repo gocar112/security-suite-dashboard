@@ -9,6 +9,8 @@ import json
 import queue
 import threading
 import time
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -24,6 +26,16 @@ CONTENT_TYPES = {
     ".ico": "image/x-icon",
 }
 MAX_BODY = 64 * 1024
+
+INTEL_SOURCES = (
+    ("vuls", "https://github.com/future-architect/vuls", "bridge"),
+    ("nvd", "https://nvd.nist.gov/", "catalog"),
+    ("kev", "https://www.cisa.gov/known-exploited-vulnerabilities-catalog", "catalog"),
+    ("osv", "https://osv.dev/", "catalog"),
+    ("github", "https://github.com/advisories", "catalog"),
+    ("clawfire", "https://clawfire.ai/", "reference"),
+    ("virustotal", "https://www.virustotal.com/", "optional"),
+)
 
 
 class Context:
@@ -119,6 +131,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self.ctx.engine.info())
         elif route == "/api/telemetry":
             self._json(self.ctx.telemetry.recent(force=params.get("force") == "1"))
+        elif route == "/api/intel":
+            self._json(self._intel())
         elif route == "/api/stream":
             self._stream()
         else:
@@ -190,6 +204,36 @@ class Handler(BaseHTTPRequestHandler):
                 "findings_log": cfg.findings_log,
             },
             "server_time": now_iso(),
+        }
+
+    def _intel(self) -> dict:
+        """Return source adapters without ever returning credentials to clients."""
+        vt_key = str(getattr(self.ctx.cfg, "virustotal_api_key", "") or "").strip()
+        vt_status = "optional"
+        if vt_key:
+            request = urllib.request.Request(
+                "https://www.virustotal.com/api/v3/users/me",
+                headers={"x-apikey": vt_key, "Accept": "application/json"},
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=2) as response:
+                    vt_status = "online" if response.status == 200 else "configured"
+            except urllib.error.HTTPError as exc:
+                vt_status = "rejected" if exc.code in (401, 403) else "rate limited" if exc.code == 429 else "configured"
+            except (urllib.error.URLError, TimeoutError, OSError):
+                vt_status = "offline"
+        sources = []
+        for source_id, url, status in INTEL_SOURCES:
+            sources.append({
+                "id": source_id,
+                "url": url,
+                "status": vt_status if source_id == "virustotal" else status,
+                "configured": bool(vt_key) if source_id == "virustotal" else True,
+            })
+        return {
+            "status": "live" if vt_status == "online" else "linked",
+            "synced_at": now_iso(),
+            "sources": sources,
         }
 
     # ------------------------------------------------------------------ SSE

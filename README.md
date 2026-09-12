@@ -52,6 +52,10 @@ uploads/  ──▶  settle check  ──▶  YARA engine  ──▶  hit?  ─�
 - 60-minute detection activity chart, severity breakdown, top rules, live event feed
 - On-demand scan of any file or directory tree
 - Pause/resume the monitor and hot-reload rules without restarting
+- Convergence source lattice linking Vuls, NVD, CISA KEV, OSV, GitHub Advisories,
+  ClawFire, and an optional server-side VirusTotal adapter
+- Posture dial, source health cards, focus mode, operator sensitivity control,
+  and an opt-in Web Audio alert tone for new detections
 
 ---
 
@@ -186,6 +190,7 @@ loopback name (DNS-rebinding guard).
 | GET | `/api/findings?severity=&status=&type=&q=&limit=` | filtered findings |
 | GET | `/api/rules` | loaded rules and any compile errors |
 | GET | `/api/telemetry?force=1` | recent auth failures |
+| GET | `/api/intel` | source lattice health (VirusTotal key is never returned) |
 | GET | `/api/stream` | Server-Sent Events: `hello`, `event`, `stats` |
 | POST | `/api/scan` | `{"path": "..."}` — scan a file or tree |
 | POST | `/api/monitor` | `{"action": "pause"\|"resume"}` |
@@ -201,6 +206,20 @@ type data\findings.ndjson | jq -c "select(.severity==\"critical\")"
 
 Clean scans are **not** written to disk — they are in-memory only, so the file
 remains an alert log rather than an audit trail of every file ever seen.
+
+### External intelligence
+
+The dashboard keeps the scanner local and treats external sources as adapters.
+The source lattice links to the Vuls project, NVD, CISA's Known Exploited
+Vulnerabilities catalog, OSV, GitHub Advisories, and ClawFire fleet guardrails.
+VirusTotal is optional and is checked server-side from `/api/intel` when a key is
+available. Put the key in the process environment or a local, ignored `.env`:
+
+```text
+VIRUSTOTAL_API_KEY=your-key-here
+```
+
+The key is never sent to the browser or included in `/api/state` responses.
 
 ---
 

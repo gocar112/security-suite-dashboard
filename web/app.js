@@ -8,7 +8,13 @@ const SEV_COLOR = {
   low: "var(--low)", info: "var(--info)",
 };
 
-let state = { findings: [], selected: null, paused: false, lastStats: null, feedSeeded: false };
+let state = {
+  findings: [], selected: null, paused: false, lastStats: null, feedSeeded: false,
+  sensitivity: Number(localStorage.getItem("suite-sensitivity") || 72),
+  focusMode: localStorage.getItem("suite-focus") === "true",
+  toneEnabled: localStorage.getItem("suite-tone") === "true",
+  audioContext: null,
+};
 
 /* ------------------------------------------------------------------ utils */
 function esc(value) {
@@ -66,10 +72,11 @@ const post = (path, payload) =>
 
 /* -------------------------------------------------------------------- KPI */
 function renderStats(stats, monitor) {
+  stats = stats || {};
   state.lastStats = stats;
-  $("kpi-scanned").textContent = stats.files_scanned;
-  $("kpi-matches").textContent = stats.matches;
-  $("kpi-open").textContent = stats.open_alerts;
+  $("kpi-scanned").textContent = stats.files_scanned || 0;
+  $("kpi-matches").textContent = stats.matches || 0;
+  $("kpi-open").textContent = stats.open_alerts || 0;
   const sev = stats.by_severity || {};
   $("kpi-sev").textContent = (sev.critical || 0) + (sev.high || 0);
   $("kpi-sev-sub").textContent = (sev.critical || 0) + " critical, " + (sev.high || 0) + " high";
@@ -77,9 +84,10 @@ function renderStats(stats, monitor) {
   $("kpi-scanned-sub").textContent = stats.errors ? stats.errors + " scan errors" : "session total";
   $("kpi-uptime-sub").textContent = bytes(stats.log_size) + " logged";
 
-  renderBreakdown(sev, stats.matches);
+  renderBreakdown(sev, stats.matches || 0);
   renderTopRules(stats.top_rules || []);
   renderBars(stats.timeline || []);
+  renderPosture(stats);
 
   if (monitor) {
     state.paused = !!monitor.paused;
@@ -90,6 +98,83 @@ function renderStats(stats, monitor) {
       : "watching " + monitor.tracked_files + " files";
     $("btn-monitor").textContent = monitor.paused ? "Resume" : "Pause";
   }
+}
+
+function playTone(level = "info") {
+  if (!state.toneEnabled) return;
+  try {
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) return;
+    state.audioContext = state.audioContext || new AudioCtor();
+    if (state.audioContext.state === "suspended") state.audioContext.resume();
+    const ctx = state.audioContext;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const urgent = level === "critical" || level === "high";
+    osc.type = urgent ? "triangle" : "sine";
+    osc.frequency.setValueAtTime(urgent ? 220 : 520, now);
+    osc.frequency.exponentialRampToValueAtTime(urgent ? 110 : 760, now + .2);
+    gain.gain.setValueAtTime(.0001, now);
+    gain.gain.exponentialRampToValueAtTime(urgent ? .07 : .035, now + .018);
+    gain.gain.exponentialRampToValueAtTime(.0001, now + .24);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + .25);
+  } catch (_) { /* sound is an optional operator aid */ }
+}
+
+function syncControls() {
+  const range = $("sensitivity");
+  if (range) {
+    range.value = state.sensitivity;
+    $("sensitivity-value").textContent = state.sensitivity + "%";
+  }
+  const focus = $("focus-mode"), tone = $("event-tone"), audio = $("audio-toggle");
+  if (focus) focus.checked = state.focusMode;
+  if (tone) tone.checked = state.toneEnabled;
+  if (audio) {
+    audio.setAttribute("aria-pressed", String(state.toneEnabled));
+    $("audio-label").textContent = state.toneEnabled ? "sound on" : "sound off";
+  }
+  document.body.classList.toggle("focus-mode", state.focusMode);
+}
+
+async function loadIntel() {
+  try {
+    const data = await api("/api/intel");
+    const sources = data.sources || [];
+    sources.forEach((source) => {
+      const card = document.querySelector('[data-source="' + source.id + '"] .source-state');
+      if (card) card.textContent = source.status || "linked";
+    });
+    $("intel-status").textContent = data.status || "linked";
+    $("intel-sync").textContent = "Synced " + clockOf(data.synced_at);
+  } catch (_) {
+    // The source lattice still renders when the optional adapter endpoint is offline.
+    $("intel-status").textContent = "local mode";
+    $("intel-sync").textContent = "Local adapters ready";
+  }
+}
+
+function renderPosture(stats) {
+  const sev = stats.by_severity || {};
+  const open = Number(stats.open_alerts || 0);
+  const pressure = (Number(sev.critical || 0) * 22) +
+    (Number(sev.high || 0) * 11) + (Number(sev.medium || 0) * 4) + (open * 1.5);
+  const score = Math.max(0, Math.min(100, Math.round(100 - pressure)));
+  const arc = $("score-arc");
+  if (arc) {
+    const circumference = 2 * Math.PI * 86;
+    arc.style.strokeDasharray = circumference.toFixed(1);
+    arc.style.strokeDashoffset = (circumference * (1 - score / 100)).toFixed(1);
+    arc.style.stroke = score < 45 ? "var(--coral)" : score < 75 ? "var(--amber)" : "var(--teal)";
+  }
+  $("mission-score").textContent = score;
+  const label = score < 45 ? "fragile" : score < 75 ? "stable" : "clear";
+  $("mission-label").textContent = label;
+  $("mission-label").style.color = score < 45 ? "var(--coral)" : score < 75 ? "var(--amber)" : "var(--teal)";
+  $("mission-context").textContent = (state.focusMode ? "focus / " : "local / ") + label;
 }
 
 function renderBreakdown(sev, total) {
@@ -361,6 +446,7 @@ function connectStream() {
   source.addEventListener("event", (message) => {
     const event = JSON.parse(message.data);
     feedLine(event);
+    if (event.event_type === "yara_match") playTone(event.severity);
     if (event.event_type === "yara_match" || event.event_type === "error") {
       refreshTelemetrySoon();
     }
@@ -433,6 +519,35 @@ function wire() {
     }
   });
 
+  $("sensitivity").addEventListener("input", (event) => {
+    state.sensitivity = Number(event.target.value);
+    $("sensitivity-value").textContent = state.sensitivity + "%";
+    localStorage.setItem("suite-sensitivity", String(state.sensitivity));
+  });
+  $("focus-mode").addEventListener("change", (event) => {
+    state.focusMode = event.target.checked;
+    localStorage.setItem("suite-focus", String(state.focusMode));
+    document.body.classList.toggle("focus-mode", state.focusMode);
+    renderPosture(state.lastStats || {});
+  });
+  $("event-tone").addEventListener("change", (event) => {
+    state.toneEnabled = event.target.checked;
+    localStorage.setItem("suite-tone", String(state.toneEnabled));
+    syncControls();
+    if (state.toneEnabled) playTone("info");
+  });
+  $("audio-toggle").addEventListener("click", () => {
+    state.toneEnabled = !state.toneEnabled;
+    localStorage.setItem("suite-tone", String(state.toneEnabled));
+    syncControls();
+    if (state.toneEnabled) playTone("info");
+  });
+  $("refresh-intel").addEventListener("click", async () => {
+    $("intel-sync").textContent = "Syncing source cards...";
+    await loadIntel();
+    toast("Source lattice synced");
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeDrawer();
   });
@@ -469,7 +584,9 @@ function mountDrawer() {
 
 mountDrawer();
 wire();
+syncControls();
 refresh();
 loadFindings();
+loadIntel();
 connectStream();
 setInterval(refresh, 15000);

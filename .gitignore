@@ -1,6 +1,7 @@
 # Runtime state - findings and triage are local to each deployment
 data/
 config.json
+.env
 
 # Watched folder: keep the directory, never commit what lands in it
 uploads/*

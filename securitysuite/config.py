@@ -14,6 +14,28 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIG_FILE = ROOT / "config.json"
 
 
+def _load_local_env() -> None:
+    """Load simple KEY=value pairs for local adapters without a dependency."""
+    env_file = ROOT / ".env"
+    if not env_file.exists():
+        return
+    try:
+        lines = env_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key, value = key.strip(), value.strip().strip("\"'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_local_env()
+
+
 @dataclass
 class Config:
     # --- monitoring ---
@@ -45,12 +67,18 @@ class Config:
     host: str = "127.0.0.1"
     port: int = 8787
 
+    # --- optional external intelligence ---
+    virustotal_api_key: str = field(default_factory=lambda: os.getenv("VIRUSTOTAL_API_KEY", ""))
+
     @property
     def max_file_bytes(self) -> int:
         return int(self.max_file_mb * 1024 * 1024)
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        values = asdict(self)
+        # Credentials belong in the process environment, never in config.json.
+        values.pop("virustotal_api_key", None)
+        return values
 
     def save(self, path: Path | None = None) -> Path:
         path = path or CONFIG_FILE
