@@ -77,11 +77,20 @@ securitysuite/
 assets/securitysuite.ico  desktop shortcut icon
 book/                   the field guide (pdf + docx)
 nvds/                   NVD cache (contents gitignored)
-rules/
-  demo.yar              test keyword, EICAR, high-entropy PE
-  webshell.yar          PHP / ASPX / JSP backdoors
-  windows_threats.yar   encoded PowerShell, download cradles, credential
-                        dumpers, shadow-copy deletion, ransom notes
+rules/                  55 rules; each file is one YARA namespace
+  c2_network.yar          beacons, reverse shells, DNS tunnelling
+  credential_theft.yar    LSASS dumping, browser stores, keylogging
+  cryptominer.yar         miner config, stratum pools, browser mining
+  demo.yar                test keyword, EICAR, high-entropy PE
+  info_stealer_rat.yar    commodity stealers and remote-access trojans
+  office_macro_malware.yar  auto-exec macros, droppers, obfuscated VBA
+  phishing_social_engineering.yar  credential harvesting and lures
+  ransomware.yar          family indicators and extortion artifacts
+  recon_persistence.yar   discovery chains, scheduled tasks, WMI, LOLBins
+  web_fraud_skimmer.yar   card skimming and formjacking
+  webshell.yar            PHP / ASPX / JSP backdoors
+  windows_threats.yar     encoded PowerShell, download cradles, credential
+                          dumpers, shadow-copy deletion, ransom notes
 samples/                harmless text files that trip specific rules
 uploads/                the watched folder (starts empty)
 data/findings.ndjson    append-only alert log
