@@ -1,8 +1,21 @@
 # Security Suite
 
-A YARA-backed SOC detector with a live web dashboard. It watches directories,
-scans new files in memory, correlates hits against authentication telemetry from
-the same time window, and streams every finding to a browser console in real time.
+A YARA-backed SOC detector with a live web dashboard, for Windows, macOS and
+Linux. It watches directories, scans new files in memory against **73 rules**,
+correlates hits against authentication telemetry from the same time window,
+pulls the indicators back out of whatever it caught, and streams the lot to a
+browser console in real time.
+
+| | |
+| --- | --- |
+| **Detect** | 73 YARA rules across 15 namespaces — web shells, ransomware, stealers, C2, macro droppers, Linux persistence, supply-chain hooks, RMM abuse |
+| **Correlate** | Failed logons from the same window: Windows Security log, macOS unified log, or `auth.log`/journald |
+| **Pivot** | URLs, domains, IPs, wallets, CVEs and paths extracted from every detection, defanged, with CSV export |
+| **Enrich** | Live NVD, OSV and VirusTotal adapters — no credential needed for the first two |
+| **Triage** | Acknowledge, resolve, mark false positive, in place and persisted |
+
+One hard dependency (`yara-python`); the server is `http.server` from the
+standard library and the dashboard is plain HTML/CSS/JS. Nothing to build.
 
 Built from `YARA_scanning.py`, restructured into a service with a UI.
 
@@ -326,7 +339,7 @@ detection engineering that uses this repository as its running case study.
 Twelve chapters and four appendices covering YARA rule design, the race
 conditions in the file watcher, telemetry correlation, triage economics, the
 intel adapters, and indicator extraction — including the bugs found while
-building it. **Third edition, 82 pages / ~21,500 words.**
+building it. **Fourth edition, 86 pages / ~22,400 words.**
 
 Chapter 9 works through a real false positive end to end: scanning the book's
 own manuscript tripped twelve rules, eleven correctly (it quotes IOC strings)
