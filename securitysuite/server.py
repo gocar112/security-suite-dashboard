@@ -165,7 +165,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.ctx.vt is None:
                 self._json({"error": "virustotal adapter not enabled"}, 503)
                 return
-            self._json(self.ctx.vt.capabilities(refresh=params.get("refresh") == "1"))
+            refresh = params.get("refresh") == "1"
+            # An explicit refresh may block; the dashboard poll never does.
+            self._json(self.ctx.vt.capabilities(refresh=refresh, block=refresh))
         elif route == "/api/vt/file":
             if self.ctx.vt is None:
                 self._json({"error": "virustotal adapter not enabled"}, 503)

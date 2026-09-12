@@ -155,10 +155,29 @@ async function loadIntel() {
   try {
     const data = await api("/api/intel");
     const sources = data.sources || [];
+    let live = 0;
     sources.forEach((source) => {
-      const card = document.querySelector('[data-source="' + source.id + '"] .source-state');
-      if (card) card.textContent = source.status || "linked";
+      const card = document.querySelector('[data-source="' + source.id + '"]');
+      const state = card && card.querySelector(".source-state");
+      if (state) state.textContent = source.status || "linked";
+      if (!card) return;
+      const online = source.status === "online";
+      const degraded = ["offline", "rejected", "rate limited", "syncing"].includes(source.status);
+      if (online) live += 1;
+      card.classList.toggle("is-online", online);
+      card.classList.toggle("is-degraded", degraded);
+      card.classList.toggle("is-linked", !online && !degraded && card.dataset.live !== "1");
+      if (source.detail) card.title = source.detail;
     });
+    const adapters = sources.filter((s) => s.id === "nvd" || s.id === "osv" || s.id === "virustotal").length;
+    const linked = sources.length - adapters;
+    if ($("strip-note")) {
+      $("strip-note").textContent = live + " of " + adapters + " adapters online \u00b7 " +
+        linked + " linked references";
+    }
+    if ($("meta-adapters")) {
+      $("meta-adapters").textContent = live + "/" + adapters + " intel adapters live";
+    }
     $("intel-status").textContent = data.status || "linked";
     $("intel-sync").textContent = "Synced " + clockOf(data.synced_at);
   } catch (_) {
@@ -385,6 +404,10 @@ function renderTelemetry(tele) {
 
 function renderRules(engine) {
   $("rules-pill").textContent = engine.rule_count + " rules";
+  if ($("meta-rules")) {
+    $("meta-rules").textContent = engine.rule_count + " YARA rules / " +
+      (engine.rule_files || []).length + " namespaces";
+  }
   $("rules-tag").textContent = (engine.rule_files || []).length + " files / " +
     engine.compile_ms + " ms";
   const warn = [];
@@ -466,6 +489,12 @@ function renderIocs(data) {
       esc(k) + ' <b>' + byType[k] + '</b></span>').join("");
     summary.innerHTML = chips ||
       '<span class="faint">Nothing extracted yet \u2014 indicators appear when a file trips a rule.</span>';
+  }
+
+  if ($("meta-iocs")) {
+    $("meta-iocs").textContent = items.length
+      ? items.length + " indicators extracted"
+      : "indicator extraction";
   }
 
   if (!items.length) {

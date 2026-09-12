@@ -33,8 +33,8 @@
       <div class="mission-copy">
         <div class="eyebrow"><span class="eyebrow-pip"></span>Convergence control / <span id="intel-status">warming up</span></div>
         <h1>Keep the signal<br><em>inside the line.</em></h1>
-        <p>One room for YARA detections, Vuls exposure data, and the feeds that explain what needs attention next.</p>
-        <div class="mission-meta"><span><b class="meta-led teal"></b>YARA sensor</span><span><b class="meta-led amber"></b>Vuls bridge</span><span><b class="meta-led lilac"></b>external intel</span></div>
+        <p>One room for YARA detections, the indicators pulled out of them, and the vulnerability feeds that explain what needs attention next.</p>
+        <div class="mission-meta"><span><b class="meta-led teal"></b><span id="meta-rules">YARA sensor</span></span><span><b class="meta-led amber"></b><span id="meta-adapters">intel adapters</span></span><span><b class="meta-led lilac"></b><span id="meta-iocs">indicator extraction</span></span></div>
       </div>
 
       <div class="dial-panel">
@@ -59,15 +59,15 @@
     </section>
 
     <section class="source-strip" aria-label="Intelligence sources">
-      <div class="strip-heading"><span>Source lattice</span><span class="strip-note">linked references / adapter-ready</span></div>
+      <div class="strip-heading"><span>Source lattice</span><span class="strip-note" id="strip-note">checking adapters…</span></div><div class="strip-legend"><b>online</b> live adapter, request succeeded &middot; <b>ready</b> live adapter, not yet queried &middot; <b>catalog / bridge / reference</b> link only, no integration</div>
       <div class="source-grid" id="source-grid">
         <a class="source-card source-vuls" data-source="vuls" href="https://github.com/future-architect/vuls" target="_blank" rel="noreferrer"><span class="source-icon">V</span><span><b>Vuls</b><small>agentless scanner</small></span><i class="source-state">bridge</i></a>
-        <a class="source-card source-nvd" data-source="nvd" href="https://nvd.nist.gov/" target="_blank" rel="noreferrer"><span class="source-icon">N</span><span><b>NVD</b><small>cve intelligence</small></span><i class="source-state">catalog</i></a>
+        <a class="source-card source-nvd" data-source="nvd" data-live="1" href="https://nvd.nist.gov/" target="_blank" rel="noreferrer"><span class="source-icon">N</span><span><b>NVD</b><small>cve catalog / cached</small></span><i class="source-state">checking</i></a>
         <a class="source-card source-kev" data-source="kev" href="https://www.cisa.gov/known-exploited-vulnerabilities-catalog" target="_blank" rel="noreferrer"><span class="source-icon">K</span><span><b>CISA KEV</b><small>known exploited</small></span><i class="source-state">catalog</i></a>
-        <a class="source-card source-osv" data-source="osv" href="https://osv.dev/" target="_blank" rel="noreferrer"><span class="source-icon">O</span><span><b>OSV</b><small>open source vulns</small></span><i class="source-state">catalog</i></a>
+        <a class="source-card source-osv" data-source="osv" data-live="1" href="https://osv.dev/" target="_blank" rel="noreferrer"><span class="source-icon">O</span><span><b>OSV</b><small>query by commit / package</small></span><i class="source-state">checking</i></a>
         <a class="source-card source-gh" data-source="github" href="https://github.com/advisories" target="_blank" rel="noreferrer"><span class="source-icon">GH</span><span><b>GitHub</b><small>advisories</small></span><i class="source-state">catalog</i></a>
         <a class="source-card source-claw" data-source="clawfire" href="https://clawfire.ai/" target="_blank" rel="noreferrer"><span class="source-icon">CF</span><span><b>ClawFire</b><small>fleet guardrails</small></span><i class="source-state">reference</i></a>
-        <a class="source-card source-vt" data-source="virustotal" href="https://www.virustotal.com/" target="_blank" rel="noreferrer"><span class="source-icon">VT</span><span><b>VirusTotal</b><small>file reputation</small></span><i class="source-state">optional</i></a>
+        <a class="source-card source-vt" data-source="virustotal" data-live="1" href="https://www.virustotal.com/" target="_blank" rel="noreferrer"><span class="source-icon">VT</span><span><b>VirusTotal</b><small>file reputation</small></span><i class="source-state">checking</i></a>
       </div>
     </section>
 
@@ -108,7 +108,7 @@
       </aside>
     </section>
   </main>
-  <footer class="footer"><span>Security Suite / convergence console</span><span>Vuls · NVD · KEV · OSV · GitHub · ClawFire</span></footer>
+  <footer class="footer"><span>Security Suite / convergence console</span><span id="footer-sources">NVD · OSV · VirusTotal live · KEV · GitHub · Vuls · ClawFire linked</span></footer>
 </div>
 <script src="/app.js"></script>
 </body>

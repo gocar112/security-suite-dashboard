@@ -39,6 +39,7 @@ CAPABILITY_PROBES = (
 )
 
 ENTERPRISE_ONLY = ("livehunt", "retrohunt", "intelligence_search", "vtdiff")
+CAPABILITY_TTL_SECONDS = 24 * 3600   # a VT account tier changes rarely
 
 
 def _now() -> datetime:
@@ -122,6 +123,8 @@ class VtClient:
         self.limiter = RateLimiter(15.5)
         self._lock = threading.Lock()
         self._capabilities: dict | None = None
+        self._cap_path = self.cache_dir / "_capabilities.json"
+        self._probing = False
         self.lookups = 0
         self.last_error: str | None = None
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -134,8 +137,14 @@ class VtClient:
         return {"x-apikey": self.api_key}
 
     # --------------------------------------------------------- capabilities
-    def capabilities(self, refresh: bool = False) -> dict:
-        """Probe what this key may actually reach. Cached for the session."""
+    def capabilities(self, refresh: bool = False, block: bool = False) -> dict:
+        """What this key may actually reach.
+
+        On the public tier the probe costs four requests at roughly 15 s apart,
+        so it must never run inside a request handler - an earlier version did,
+        and /api/intel took 84 seconds on a cold start. The result is cached in
+        memory and on disk, and refreshed on a background thread.
+        """
         with self._lock:
             if self._capabilities is not None and not refresh:
                 return self._capabilities
@@ -151,6 +160,82 @@ class VtClient:
                 self._capabilities = result
             return result
 
+        if not refresh:
+            cached = self._load_cached_capabilities()
+            if cached is not None:
+                with self._lock:
+                    self._capabilities = cached
+                return cached
+
+        if block:
+            result = self._probe_capabilities()
+            with self._lock:
+                self._capabilities = result
+            self._save_capabilities(result)
+            return result
+
+        self._start_probe()
+        return {
+            "configured": True,
+            "tier": "checking",
+            "allowed": {},
+            "hunting_available": False,
+            "retrohunt_available": False,
+            "detail": "Probing what this key is permitted to reach (public tier "
+                      "allows 4 requests/minute, so this takes about a minute).",
+            "rate_limit": "unknown until the probe completes",
+            "checked_at": None,
+            "tls_bundle": ssl_source(),
+        }
+
+    # ------------------------------------------------------- probe machinery
+    def _start_probe(self) -> None:
+        with self._lock:
+            if self._probing:
+                return
+            self._probing = True
+
+        def run():
+            try:
+                result = self._probe_capabilities()
+                with self._lock:
+                    self._capabilities = result
+                self._save_capabilities(result)
+            except Exception as exc:            # never kill the thread silently
+                self.last_error = str(exc)
+            finally:
+                with self._lock:
+                    self._probing = False
+
+        threading.Thread(target=run, name="vt-capability-probe", daemon=True).start()
+
+    def _load_cached_capabilities(self) -> dict | None:
+        """Reuse a probe from a previous run; tiers change rarely."""
+        if not self._cap_path.exists():
+            return None
+        try:
+            data = json.loads(self._cap_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        stamp = data.get("checked_at")
+        if not stamp:
+            return None
+        try:
+            age = (_now() - datetime.fromisoformat(stamp)).total_seconds()
+        except (TypeError, ValueError):
+            return None
+        if age > CAPABILITY_TTL_SECONDS or age < -3600:
+            return None
+        data["from_cache"] = True
+        return data
+
+    def _save_capabilities(self, result: dict) -> None:
+        try:
+            self._cap_path.write_text(json.dumps(result, indent=1), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _probe_capabilities(self) -> dict:
         allowed: dict = {}
         for name, path in CAPABILITY_PROBES:
             self.limiter.wait()
@@ -164,7 +249,7 @@ class VtClient:
                     self.last_error = str(exc)
 
         enterprise = any(allowed.get(name) for name in ENTERPRISE_ONLY)
-        result = {
+        return {
             "configured": True,
             "tier": "enterprise" if enterprise else "public",
             "allowed": allowed,
@@ -180,9 +265,6 @@ class VtClient:
             "checked_at": _now().astimezone().isoformat(timespec="seconds"),
             "tls_bundle": ssl_source(),
         }
-        with self._lock:
-            self._capabilities = result
-        return result
 
     # -------------------------------------------------------------- lookups
     def lookup_hash(self, file_hash: str, use_cache: bool = True) -> dict:
@@ -231,7 +313,7 @@ class VtClient:
     # -------------------------------------------------- hunting (gated)
     def hunting(self, what: str = "livehunt") -> dict:
         """Hunting endpoints, gated behind a real capability check."""
-        caps = self.capabilities()
+        caps = self.capabilities(block=True)
         if not caps.get("configured"):
             return {"error": "no VirusTotal API key configured", "available": False}
         if not caps.get("allowed", {}).get(what):
