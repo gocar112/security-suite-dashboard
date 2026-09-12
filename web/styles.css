@@ -147,3 +147,30 @@ body.focus-mode .findings-panel { box-shadow: 0 0 0 1px rgba(71, 224, 192, .2), 
 .ioc-files { font-size: 11px; color: #8ea0b5; word-break: break-all; }
 .ioc-scope { font-size: 10px; color: #5d6f85; margin-left: 6px; }
 .ioc-empty { padding: 22px; text-align: center; color: #5d6f85; font-size: 12.5px; }
+
+/* --------------------------------------------- findings table column sizing */
+/* Fixed layout stops a long file path from starving the Rules column, and the
+   path itself is elided rather than wrapped - folder names with spaces used to
+   break across three lines. */
+.findings-panel table { table-layout: fixed; width: 100%; }
+.findings-panel th:nth-child(1), .findings-panel td:nth-child(1) { width: 86px; }
+.findings-panel th:nth-child(2), .findings-panel td:nth-child(2) { width: 72px; }
+.findings-panel th:nth-child(4), .findings-panel td:nth-child(4) { width: 30%; min-width: 150px; }
+.findings-panel th:nth-child(5), .findings-panel td:nth-child(5) { width: 96px; }
+.findings-panel td.file-cell { min-width: 0; overflow: hidden; }
+.findings-panel .path {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  word-break: normal; font-size: 12px;
+}
+.findings-panel .path-full {
+  display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 10.5px; margin-top: 2px; cursor: help;
+}
+.findings-panel .rules-cell { overflow: hidden; }
+.findings-panel .rules-cell code { max-width: 100%; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+@media (max-width: 900px) {
+  .findings-panel th:nth-child(2), .findings-panel td:nth-child(2) { width: 62px; }
+  .findings-panel th:nth-child(4), .findings-panel td:nth-child(4) { width: 26%; min-width: 110px; }
+  .findings-panel th:nth-child(5), .findings-panel td:nth-child(5) { width: 80px; }
+}

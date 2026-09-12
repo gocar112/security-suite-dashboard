@@ -44,6 +44,17 @@ function duration(seconds) {
   return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
 }
 
+function shortPath(value) {
+  // Collapse the middle of a long path. Folder names containing spaces
+  // otherwise wrap at every space and shred the column.
+  const full = String(value || "");
+  if (full.length <= 48) return full;
+  const sep = full.indexOf("\\") >= 0 ? "\\" : "/";
+  const parts = full.split(/[\\/]/).filter(Boolean);
+  if (parts.length <= 3) return full;
+  return parts[0] + sep + "\u2026" + sep + parts.slice(-2).join(sep);
+}
+
 function baseName(p) {
   return String(p || "").split(/[\\/]/).pop() || String(p || "");
 }
@@ -222,8 +233,9 @@ function rowHtml(finding) {
   return '<tr data-id="' + esc(finding.id) + '">' +
     '<td><span class="sev ' + sevClass + '">' + esc(label) + '</span></td>' +
     '<td class="mono dim">' + clockOf(finding.timestamp) + '</td>' +
-    '<td><div class="mono path">' + esc(baseName(finding.file_path)) + '</div>' +
-    '<div class="faint" style="font-size:11px">' + esc(finding.file_path || finding.message || "") + '</div></td>' +
+    '<td class="file-cell"><div class="mono path">' + esc(baseName(finding.file_path)) + '</div>' +
+    '<div class="faint path-full" title="' + esc(finding.file_path || "") + '">' +
+      esc(shortPath(finding.file_path) || finding.message || "") + '</div></td>' +
     '<td class="rules-cell">' + (rules.length
       ? rules.map((r) => "<code>" + esc(r) + "</code>").join("")
       : '<span class="faint">-</span>') + '</td>' +
