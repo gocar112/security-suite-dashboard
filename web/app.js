@@ -291,6 +291,58 @@ function renderRows(findings) {
   $("findings-count").textContent = findings.length + " shown";
 }
 
+async function loadShield() {
+  try {
+    const data = await api("/api/shield");
+    renderShield(data);
+  } catch (err) {
+    if ($("shield-score")) $("shield-score").textContent = "local only";
+  }
+}
+
+function renderShield(data) {
+  if ($("shield-score")) {
+    $("shield-score").textContent = "posture " + data.score + " / 100";
+  }
+  const layers = $("shield-layers");
+  if (layers) {
+    layers.innerHTML = (data.layers || []).map((layer) => {
+      const cls = String(layer.status || "").replace(/[^a-z-]/g, "");
+      const link = layer.url ? '<a href="' + esc(layer.url) +
+        '" target="_blank" rel="noreferrer">source</a>' : "";
+      return '<div class="shield-card shield-' + esc(cls) + '">' +
+        '<div><span class="shield-kind">' + esc(layer.kind) + '</span>' +
+        '<strong>' + esc(layer.name) + '</strong></div>' +
+        '<p>' + esc(layer.coverage) + '</p>' +
+        '<small>' + esc(layer.patch) + link + '</small>' +
+        '<i>' + esc(layer.status) + '</i></div>';
+    }).join("");
+  }
+  const pressure = $("shield-pressure");
+  if (pressure) {
+    const sample = data.attack_reasons_sample || [];
+    pressure.innerHTML = '<b>' + esc(data.attack_reasons) +
+      '</b> defensive attack reasons mapped' +
+      '<div class="pressure-list">' + sample.slice(0, 8).map((r) =>
+        '<span title="' + esc(r.defense) + '">' + esc(r.id) + ' ' +
+        esc(r.goal) + ' via ' + esc(r.entry) + '</span>').join("") +
+      '</div>';
+  }
+  const playbooks = $("shield-playbooks");
+  if (playbooks) {
+    playbooks.innerHTML = (data.patch_playbooks || []).map((book) =>
+      '<div class="playbook"><b>' + esc(book.name) + '</b><span>' +
+      esc((book.actions || []).slice(0, 4).join(" / ")) + '</span></div>'
+    ).join("");
+  }
+  const groups = $("shield-groups");
+  if (groups) {
+    groups.innerHTML = Object.entries(data.file_groups || {}).map(([name, exts]) =>
+      '<div><b>' + esc(name) + '</b><span>' + esc(exts.join(", ")) +
+      '</span></div>').join("");
+  }
+}
+
 function clearLocalLines() {
   state.findings = [];
   state.selected = null;
@@ -858,6 +910,7 @@ async function refresh() {
     renderSensor(data);
     loadIocs();
     loadRemediation();
+    loadShield();
     $("sub-title").textContent = data.config.watch_paths.length + " path(s) monitored";
   } catch (err) {
     toast("Backend unreachable: " + err.message, true);
@@ -1070,5 +1123,6 @@ syncControls();
 refresh();
 loadFindings();
 loadIntel();
+loadShield();
 connectStream();
 setInterval(refresh, 15000);

@@ -2,16 +2,20 @@
 """Create a desktop launcher for the Security Suite on any OS.
 
     python install_shortcut.py            # create it
+    python install_shortcut.py --startup  # also start when you sign in
     python install_shortcut.py --remove   # take it away again
 
 Windows gets a .lnk, Linux a .desktop entry (registered in the applications
 menu as well as on the desktop), and macOS a double-clickable .command file.
-Nothing is installed system-wide and nothing needs elevation.
+Nothing is installed system-wide and nothing needs elevation. Launchers are
+created in quiet mode by default so Windows does not flash a PowerShell console
+when the suite starts.
 """
 from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -46,6 +50,28 @@ def desktop_dir() -> Path:
     return Path.home() / "Desktop"
 
 
+def startup_dir() -> Path:
+    """Per-user startup/autostart folder for the current OS."""
+    if os.name == "nt":
+        appdata = os.getenv("APPDATA", "")
+        if appdata:
+            return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+        return Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    if sys.platform == "darwin":
+        return Path.home() / "Applications"
+    return Path.home() / ".config" / "autostart"
+
+
+def quiet_python() -> Path:
+    """Use pythonw on Windows when it exists, otherwise the current Python."""
+    current = Path(sys.executable)
+    if os.name == "nt":
+        candidate = current.with_name("pythonw.exe")
+        if candidate.exists():
+            return candidate
+    return current
+
+
 def best_icon() -> Path | None:
     for candidate in (ICON_PNG, ICON_SVG, ICON_ICO):
         if candidate.exists():
@@ -54,12 +80,13 @@ def best_icon() -> Path | None:
 
 
 # ------------------------------------------------------------------ windows
-def install_windows(remove: bool) -> Path:
-    target = desktop_dir() / (NAME + ".lnk")
+def install_windows(remove: bool, startup: bool) -> Path:
+    target = (startup_dir() if startup else desktop_dir()) / (NAME + ".lnk")
     if remove:
         target.unlink(missing_ok=True)
         return target
     icon = ICON_ICO if ICON_ICO.exists() else None   # .lnk needs a real .ico
+    target.parent.mkdir(parents=True, exist_ok=True)
     script = (
         "$ws = New-Object -ComObject WScript.Shell; "
         "$l = $ws.CreateShortcut(%s); "
@@ -67,7 +94,7 @@ def install_windows(remove: bool) -> Path:
         "$l.Arguments = 'run.py'; "
         "$l.WorkingDirectory = %s; "
         "$l.Description = 'Security Suite - YARA SOC detector with live dashboard'; "
-        % (ps_quote(str(target)), ps_quote(sys.executable), ps_quote(str(ROOT)))
+        % (ps_quote(str(target)), ps_quote(str(quiet_python())), ps_quote(str(ROOT)))
     )
     if icon:
         script += "$l.IconLocation = %s; " % ps_quote(str(icon) + ",0")
@@ -82,10 +109,10 @@ def ps_quote(value: str) -> str:
 
 
 # -------------------------------------------------------------------- linux
-def install_linux(remove: bool) -> Path:
+def install_linux(remove: bool, startup: bool) -> Path:
     entry = NAME.lower().replace(" ", "-") + ".desktop"
     apps_dir = Path.home() / ".local" / "share" / "applications"
-    targets = [apps_dir / entry, desktop_dir() / entry]
+    targets = [startup_dir() / entry] if startup else [apps_dir / entry, desktop_dir() / entry]
     if remove:
         for target in targets:
             target.unlink(missing_ok=True)
@@ -100,7 +127,7 @@ def install_linux(remove: bool) -> Path:
         "Exec=" + shell_quote(sys.executable) + " run.py",
         "Path=" + str(ROOT),
         "Icon=" + (str(icon) if icon else "security-high"),
-        "Terminal=true",
+        "Terminal=false",
         "Categories=Security;System;Monitor;",
         "StartupNotify=false",
         "",
@@ -120,26 +147,45 @@ def shell_quote(value: str) -> str:
 
 
 # -------------------------------------------------------------------- macOS
-def install_macos(remove: bool) -> Path:
-    target = desktop_dir() / (NAME + ".command")
+def install_macos(remove: bool, startup: bool) -> Path:
+    target = (startup_dir() if startup else desktop_dir()) / (NAME + ".app")
     if remove:
-        target.unlink(missing_ok=True)
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink(missing_ok=True)
         return target
+    script_dir = target / "Contents" / "MacOS"
+    script_dir.mkdir(parents=True, exist_ok=True)
+    (target / "Contents" / "Info.plist").write_text("\n".join([
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+        "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\"",
+        "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">",
+        "<plist version=\"1.0\"><dict>",
+        "<key>CFBundleName</key><string>Security Suite</string>",
+        "<key>CFBundleExecutable</key><string>security-suite</string>",
+        "<key>CFBundleIdentifier</key><string>local.securitysuite.dashboard</string>",
+        "<key>LSBackgroundOnly</key><string>1</string>",
+        "</dict></plist>",
+        "",
+    ]), encoding="utf-8")
     script = "\n".join([
         "#!/bin/bash",
-        "# Double-click to start the Security Suite.",
         "cd " + shell_quote(str(ROOT)),
         "exec " + shell_quote(sys.executable) + " run.py",
         "",
     ])
-    target.write_text(script, encoding="utf-8")
-    target.chmod(0o755)
+    executable = script_dir / "security-suite"
+    executable.write_text(script, encoding="utf-8")
+    executable.chmod(0o755)
     return target
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Create a desktop launcher.")
     parser.add_argument("--remove", action="store_true", help="remove the launcher")
+    parser.add_argument("--startup", action="store_true",
+                        help="install/remove the per-user startup launcher")
     args = parser.parse_args()
 
     if os.name == "nt":
@@ -150,7 +196,7 @@ def main() -> int:
         platform, install = "Linux", install_linux
 
     try:
-        target = install(args.remove)
+        target = install(args.remove, args.startup)
     except subprocess.CalledProcessError as exc:
         print("[-] Launcher creation failed: " + (exc.stderr or b"").decode("utf-8", "replace")[:200])
         return 1
@@ -159,7 +205,7 @@ def main() -> int:
         return 1
 
     verb = "Removed" if args.remove else "Created"
-    print("[*] " + platform + " launcher")
+    print("[*] " + platform + (" startup" if args.startup else " desktop") + " launcher")
     print("[*] " + verb + ": " + str(target))
     if not args.remove:
         # Windows shortcuts need a genuine .ico; the others take PNG or SVG.
@@ -168,12 +214,13 @@ def main() -> int:
         else:
             icon = best_icon()
         print("[*] Icon    : " + (str(icon) if icon else "system default"))
-        print("[*] Runs    : " + sys.executable + " run.py")
+        runner = quiet_python() if platform == "Windows" else Path(sys.executable)
+        print("[*] Runs    : " + str(runner) + " run.py")
         print("[*] From    : " + str(ROOT))
         if platform == "macOS":
-            print("[*] macOS may ask for confirmation the first time it is opened.")
+            print("[*] Created a quiet .app bundle.")
         if platform == "Linux":
-            print("[*] Some desktops require 'Allow Launching' from the file's context menu.")
+            print("[*] The launcher uses Terminal=false to avoid opening a shell window.")
     return 0
 
 

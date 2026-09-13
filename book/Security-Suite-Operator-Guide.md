@@ -3,12 +3,14 @@
 Version: 2026-09-12
 
 This book explains how to run the Security Suite, read the dashboard, triage
-findings, pivot indicators, update the local vulnerability database, and use
-remediation without turning a false positive into data loss.
+findings, pivot indicators, update the local vulnerability database, understand
+the AV/IDS/IPS shield layer, and use remediation without turning a false
+positive into data loss.
 
 The suite is a local defensive SOC console. It watches files, scans them with
-YARA, extracts indicators, enriches CVE signals, and gives the operator guarded
-actions such as quarantine, restore, delete, purge, and clear lines.
+YARA, extracts indicators, enriches CVE signals, maps common attack pressure to
+safe playbooks, and gives the operator guarded actions such as quarantine,
+restore, delete, purge, and clear lines.
 
 ## Table of contents
 
@@ -18,13 +20,14 @@ actions such as quarantine, restore, delete, purge, and clear lines.
 4. Running scans
 5. Reading a finding
 6. Indicator pivots
-7. Triage workflow
-8. Remediation workflow
-9. Clear lines and log backups
-10. Database and NVD updates
-11. Release and GitHub workflow
-12. Troubleshooting
-13. Operator checklist
+7. Shield fabric
+8. Triage workflow
+9. Remediation workflow
+10. Clear lines and log backups
+11. Database and NVD updates
+12. Release and GitHub workflow
+13. Troubleshooting
+14. Operator checklist
 
 ## 1. What this tool is
 
@@ -42,6 +45,7 @@ Core jobs:
 - Extract URLs, domains, IP addresses, hashes, registry paths, file paths,
   wallets, and CVEs.
 - Enrich CVE findings with local NVD/CISA context when available.
+- Map AV, IDS, IPS, patch, and connector-ready controls in the dashboard.
 - Remediate only verified detection targets.
 - Back up active dashboard lines before clearing the live view.
 
@@ -113,6 +117,8 @@ Main work area:
 
 - Findings is the live detection stream.
 - Extracted indicators is the pivot table.
+- Shield Fabric shows AV/IDS/IPS layers, Bitdefender-ready connector state,
+  defensive attack pressure, patch playbooks, and file split groups.
 - Detection activity shows recent activity.
 - Live feed shows compact event lines.
 - Containment handles bulk remediation previews and actions.
@@ -182,7 +188,36 @@ For CVE indicators, the tool adds NVD pivot links when the local database has
 context. Use those links to confirm vendor guidance before patching production
 systems.
 
-## 7. Triage workflow
+## 7. Shield fabric
+
+The Shield Fabric panel is the defensive control map. It does not run exploits
+and it does not pretend to be a commercial EDR console. It tells the operator
+which controls are local, which controls are connector-ready, and which response
+playbooks should be used first.
+
+Layers:
+
+- AV: local YARA scanning, hash identity, quarantine, guarded delete, and purge.
+- IDS: live finding stream, alert sound, auth telemetry, and IOC pivots.
+- IPS: manual containment actions after dry-run preview and confirmation.
+- Patch: NVD, CISA KEV, vendor patch references, and remediation guidance.
+- Connector-ready: Bitdefender GravityZone can be bridged later through its
+  official HTTPS JSON-RPC API when `BITDEFENDER_API_KEY` and
+  `BITDEFENDER_API_URL` are present in `.env`.
+
+The panel includes a **500-item defensive attack pressure library**. Each item
+combines a motive, entry point, severity, and safe defense such as patching,
+quarantine, credential reset, or evidence preservation. It is training material
+for coverage planning, not a hacking manual.
+
+File split groups help bulk remediation decisions:
+
+- Scripts: `.ps1`, `.py`, `.js`, `.vbs`, `.sh`, `.bat`, `.cmd`
+- Executables: `.exe`, `.dll`, `.scr`, `.msi`, `.elf`, `.dylib`
+- Documents: `.doc`, `.docm`, `.xls`, `.xlsm`, `.pdf`, `.rtf`
+- Archives: `.zip`, `.rar`, `.7z`, `.iso`, `.img`, `.tar`, `.gz`
+
+## 8. Triage workflow
 
 Use this order:
 
@@ -197,7 +232,7 @@ Use this order:
 
 Status changes are triage notes. They do not delete files by themselves.
 
-## 8. Remediation workflow
+## 9. Remediation workflow
 
 Remediation actions are intentionally guarded.
 
@@ -235,7 +270,7 @@ a YARA detection, if the hash changed, if the file is outside allowed roots, or
 if the file is part of the suite itself. Those refusals are correct. A working
 delete button should remove eligible detected files and explain every refusal.
 
-## 9. Clear lines and log backups
+## 10. Clear lines and log backups
 
 Clear lines is a dashboard maintenance action. It clears the active finding
 stream and triage lines so the room is clean for the next run.
@@ -259,7 +294,7 @@ Use Clear lines after a test run, after a demo, or before a focused scan window.
 Do not use it as incident response evidence handling. If evidence matters, copy
 the backup folder into your case record first.
 
-## 10. Database and NVD updates
+## 11. Database and NVD updates
 
 The local database summary is generated into:
 
@@ -285,14 +320,15 @@ Operational pattern:
 3. Commit the code and summary together.
 4. Let GitHub Actions run the Python YAML workflow.
 
-## 11. Release and GitHub workflow
+## 12. Release and GitHub workflow
 
 Before a release:
 
 ```powershell
-python -m compileall securitysuite tools
+python -m compileall securitysuite tools tests
 node --check web\app.js
-python tools\summarize_database.py
+python tests\smoke.py
+python tools\summarize_database.py --output docs\database-summary.md
 git status --short
 ```
 
@@ -313,10 +349,10 @@ Release checklist:
 - `docs/database-summary.md` is current.
 - Delete and quarantine have been tested with disposable files.
 - Clear lines has been tested and created a backup.
-- Compile and JavaScript checks pass.
+- Compile, smoke, and JavaScript checks pass.
 - No secrets appear in tracked files.
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 Delete button does nothing:
 
@@ -360,7 +396,14 @@ Dashboard looks stale:
 - Use Clear lines only when you want to wipe active lines.
 - Restart the server after backend code changes.
 
-## 13. Operator checklist
+Startup launcher shows a black console window:
+
+- Recreate the shortcut with `python install_shortcut.py`.
+- Add sign-in startup with `python install_shortcut.py --startup`.
+- On Windows, confirm the shortcut target is `pythonw.exe` when available.
+- On Linux, confirm the desktop entry says `Terminal=false`.
+
+## 14. Operator checklist
 
 Start of session:
 

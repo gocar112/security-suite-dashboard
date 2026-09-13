@@ -71,6 +71,21 @@
       </div>
     </section>
 
+    <section class="panel shield-panel" aria-label="Antivirus IDS IPS posture">
+      <div class="panel-head"><div><div class="section-kicker">00 / Shield fabric</div><h2>Antivirus / IDS / IPS</h2></div><span class="tag" id="shield-score">checking</span></div>
+      <div class="body shield-body">
+        <div class="shield-layers" id="shield-layers"></div>
+        <div class="shield-side">
+          <div class="shield-title">Attack pressure library</div>
+          <div class="shield-pressure" id="shield-pressure">loading...</div>
+          <div class="shield-title">Patch playbooks</div>
+          <div class="shield-playbooks" id="shield-playbooks"></div>
+          <div class="shield-title">File split groups</div>
+          <div class="shield-groups" id="shield-groups"></div>
+        </div>
+      </div>
+    </section>
+
     <section class="kpi-grid" aria-label="Live metrics">
       <div class="metric-card metric-neutral"><span class="metric-label">Files scanned</span><strong id="kpi-scanned">0</strong><small id="kpi-scanned-sub">session total</small><span class="metric-glyph">▦</span></div>
       <div class="metric-card metric-danger"><span class="metric-label">Detections</span><strong id="kpi-matches">0</strong><small id="kpi-matches-sub">YARA rule hits</small><span class="metric-glyph">⌁</span></div>

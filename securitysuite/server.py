@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .ioc import summarise, to_csv
+from .shield import posture
 from .store import now_iso
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -166,6 +167,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self.ctx.telemetry.recent(force=params.get("force") == "1"))
         elif route == "/api/intel":
             self._json(self._intel())
+        elif route == "/api/shield":
+            self._json(posture(self.ctx.cfg, self.ctx.engine, self.ctx.store,
+                               self.ctx.remediator))
         elif route == "/api/iocs":
             events = self.ctx.store.events(limit=2000, event_type="yara_match")
             data = summarise(events)

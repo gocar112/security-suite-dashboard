@@ -18,6 +18,7 @@ from securitysuite.config import load_config
 from securitysuite.engine import YaraEngine
 from securitysuite.ioc import extract
 from securitysuite.remediate import Remediator
+from securitysuite.shield import posture
 from securitysuite.store import EventStore
 from securitysuite.telemetry import AuthTelemetry
 from securitysuite.watcher import Monitor
@@ -101,10 +102,26 @@ def test_remediation_self_protection_and_delete() -> None:
         assert_true((ROOT / "README.md").exists(), "self-protection failed; README was deleted")
 
 
+def test_shield_posture() -> None:
+    with tempfile.TemporaryDirectory(prefix="ss_shield_") as raw:
+        tmp = Path(raw)
+        watch = tmp / "watch"
+        watch.mkdir()
+        cfg, engine, store, _, remediator, _ = make_stack(tmp, watch)
+        data = posture(cfg, engine, store, remediator)
+        assert_true(data["attack_reasons"] == 500, "shield pressure library is incomplete")
+        kinds = {layer["kind"] for layer in data["layers"]}
+        assert_true({"AV", "IDS", "IPS"}.issubset(kinds), "AV/IDS/IPS layers missing")
+        assert_true("scripts" in data["file_groups"], "file split groups missing")
+        assert_true(data["integrations"]["bitdefender"]["status"] in (
+            "configured", "not configured"), "Bitdefender connector status missing")
+
+
 def main() -> int:
     test_ruleset()
     test_ioc_extraction()
     test_remediation_self_protection_and_delete()
+    test_shield_posture()
     print("CI smoke tests passed")
     return 0
 

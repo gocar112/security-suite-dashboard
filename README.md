@@ -12,8 +12,8 @@
 
 Security Suite watches local folders, scans files against **1,004 YARA rules**,
 correlates detections with authentication telemetry, extracts indicators,
-enriches CVE findings with NVD/CISA context, and streams everything into a live
-browser dashboard.
+enriches CVE findings with NVD/CISA context, models AV/IDS/IPS posture, and
+streams everything into a live browser dashboard.
 
 ## Quick Links
 
@@ -30,6 +30,7 @@ browser dashboard.
 | Correlate | Pulls nearby failed-logon telemetry from Windows Security log, macOS unified log, Linux auth logs, or journald. |
 | Pivot | Extracts URLs, domains, IPs, wallets, CVEs, hashes, registry keys, and file paths; dashboard values are defanged. |
 | Enrich | Uses NVD, OSV, CISA KEV, and optional VirusTotal hash lookups for context. |
+| Shield | Shows local AV, IDS, IPS, Bitdefender-ready, NVD, and CISA KEV defensive layers. |
 | Triage | Acknowledge, resolve, mark false positive, reopen, and clear dashboard lines with backup. |
 | Remediate | Quarantine, restore, delete, and purge detection targets behind hash checks, path confinement, and an audit trail. |
 
@@ -58,9 +59,10 @@ python run.py
 Recommended verification before release:
 
 ```powershell
-python -m compileall securitysuite tools
+python -m compileall securitysuite tools tests
 node --check web\app.js
-python tools\summarize_database.py
+python tests\smoke.py
+python tools\summarize_database.py --output docs\database-summary.md
 ```
 
 ## Requirements
@@ -123,7 +125,23 @@ The indicator panel aggregates observables across all detected files.
 
 Use **Export CSV** when you want to hand the observable set to a SIEM or ticket.
 
-### 5. Remediate Carefully
+### 5. Use The Shield Fabric
+
+The **Antivirus / IDS / IPS** panel summarizes the defensive stack:
+
+- AV: local YARA scanner, quarantine, hash identity, and guarded delete.
+- IDS: finding stream, live alerts, IOC extraction, and auth telemetry.
+- IPS: manual containment actions after preview and confirmation.
+- Patch: NVD, CISA KEV, vendor advisory links, and remediation playbooks.
+- Connector-ready: Bitdefender GravityZone can be bridged later through its
+  official HTTPS JSON-RPC API by setting `BITDEFENDER_API_KEY` and
+  `BITDEFENDER_API_URL` in `.env`.
+
+The attack pressure library maps **500 defensive attack reasons** to safe
+responses. It is for training, triage, and coverage planning; it does not
+include exploit steps.
+
+### 6. Remediate Carefully
 
 ![Remediation panel](docs/images/remediation-panel.png)
 
@@ -196,6 +214,24 @@ Backups are written under:
 data/log-backups/
 ```
 
+## Launcher And Startup
+
+Create a quiet desktop launcher:
+
+```powershell
+python install_shortcut.py
+```
+
+Start Security Suite automatically when you sign in:
+
+```powershell
+python install_shortcut.py --startup
+```
+
+Windows shortcuts use `pythonw.exe` when it is available, which avoids the black
+PowerShell/console window. Linux desktop entries use `Terminal=false`, and macOS
+gets a quiet `.app` bundle.
+
 ## Samples
 
 Each sample is harmless text and is designed to trip one rule.
@@ -220,6 +256,7 @@ The source lattice separates live adapters from reference links.
 | OSV | None | Commit, package, version, and purl vulnerability lookup |
 | VirusTotal | Required | Hash reputation; no file upload |
 | CISA KEV | None | Known exploited vulnerability context |
+| Bitdefender GravityZone | Required for live connector | Connector-ready policy, report, quarantine, sandbox, and network API map |
 | GitHub Advisories | None | Reference link |
 | Vuls | None | Reference link |
 | ClawFire | None | Reference link |
@@ -282,6 +319,7 @@ All endpoints are intended for localhost use. The server rejects non-loopback
 | POST | `/api/scan` | Scan a file or directory |
 | POST | `/api/monitor` | Pause or resume monitoring |
 | POST | `/api/triage` | Acknowledge, resolve, false-positive, or reopen a finding |
+| GET | `/api/shield` | AV/IDS/IPS posture, attack-pressure library, and file split groups |
 | GET | `/api/iocs` | Extracted indicators, JSON or CSV |
 | GET | `/api/remediate` | Remediation status and recent actions |
 | GET | `/api/remediate/guidance` | Guidance for a finding |
