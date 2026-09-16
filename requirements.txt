@@ -2,7 +2,7 @@
 yara-python>=4.3
 
 # Windows Security event log telemetry (optional; Windows only)
-pywin32>=306 ; sys_platform == "win32"
+pywin32>=312 ; sys_platform == "win32"
 
 # Current CA bundle. Without it, Python on Windows may fail to verify
 # services.nvd.nist.gov with a misleading 'certificate has expired'.
