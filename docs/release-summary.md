@@ -57,3 +57,5 @@ No live malware, offensive payloads or hack-back features are included.
 
 See the [operator guide](../book/Security-Suite-Operator-Guide.md) and
 [security policy](../SECURITY.md) for use and deployment boundaries.
+Read the [1.1.0 update report](update-report-1.1.0.md) for the tab-by-tab
+walkthrough, screenshots, verification record and remaining limitations.

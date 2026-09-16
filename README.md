@@ -27,6 +27,7 @@ that a computer or network is safe.
 - Detection engineering field guide: [book/Detection-Engineering-in-Practice.pdf](book/Detection-Engineering-in-Practice.pdf)
 - Database summary: [docs/database-summary.md](docs/database-summary.md)
 - Release summary: [docs/release-summary.md](docs/release-summary.md)
+- Detailed update report: [docs/update-report-1.1.0.md](docs/update-report-1.1.0.md)
 - Main dashboard screenshot: [docs/images/console-1440.png](docs/images/console-1440.png)
 
 ## At A Glance
