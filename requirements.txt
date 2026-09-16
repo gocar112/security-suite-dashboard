@@ -6,4 +6,4 @@ pywin32>=306 ; sys_platform == "win32"
 
 # Current CA bundle. Without it, Python on Windows may fail to verify
 # services.nvd.nist.gov with a misleading 'certificate has expired'.
-certifi>=2024.2.2
+certifi>=2026.7.22
