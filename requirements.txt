@@ -1,5 +1,5 @@
 # Core detection engine (required)
-yara-python>=4.3
+yara-python>=4.5.4
 
 # Windows Security event log telemetry (optional; Windows only)
 pywin32>=306 ; sys_platform == "win32"
