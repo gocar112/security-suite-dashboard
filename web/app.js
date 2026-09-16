@@ -266,7 +266,7 @@ function rowHtml(finding) {
   const sev = finding.severity || (finding.event_type === "error" ? "low" : "info");
   const rules = (finding.rule_names || (finding.matches || []).map((m) => m.rule) || []);
   const label = finding.event_type === "yara_match" ? sev
-    : finding.event_type === "error" ? "error" : "clean";
+    : finding.event_type === "error" ? "error" : finding.skipped ? "skipped" : "no match";
   const sevClass = finding.event_type === "yara_match" ? "sev-" + sev
     : finding.event_type === "error" ? "sev-medium" : "sev-info";
   const status = finding.status || "new";
@@ -566,7 +566,7 @@ function feedLine(event) {
     body = '<span class="hit">HIT [' + esc(event.severity) + '] ' +
       esc((event.rule_names || []).join(", ")) + ' -> ' + esc(baseName(event.file_path)) + '</span>';
   } else if (event.event_type === "scan") {
-    body = '<span class="ok">clean</span> ' + esc(baseName(event.file_path));
+    body = '<span class="ok">' + (event.skipped ? 'skipped' : 'no match') + '</span> ' + esc(baseName(event.file_path));
   } else if (event.event_type === "error") {
     body = '<span class="hit">error</span> ' + esc(event.message || "");
   } else {
@@ -936,11 +936,13 @@ function connectStream() {
     }
     if (!matchesFilters(event)) return;
     state.findings.unshift(event);
+    state.findings = state.findings.slice(0, 300);
     const row = document.createElement("tbody");
     row.innerHTML = rowHtml(event);
     const tr = row.firstElementChild;
     tr.classList.add("fresh");
     $("rows").prepend(tr);
+    while ($("rows").childElementCount > 300) $("rows").lastElementChild.remove();
     $("empty").style.display = "none";
     $("findings-count").textContent = state.findings.length + " shown";
   });
@@ -990,7 +992,7 @@ function wire() {
       return;
     }
     try {
-      const result = await post("/api/findings/clear", { backup: true });
+      const result = await post("/api/findings/clear", { confirm: true });
       clearLocalLines();
       toast("Cleared " + result.events + " line(s)" +
         (result.backup_dir ? " / backup saved" : ""));
@@ -1036,10 +1038,9 @@ function wire() {
     $("btn-scan").disabled = true;
     $("scan-result").textContent = "Scanning...";
     try {
-      const result = await post("/api/scan", { path });
-      $("scan-result").innerHTML = "Scanned <b>" + result.files_scanned + "</b> file(s) in " +
-        result.elapsed_ms + " ms &middot; <b style='color:var(--critical)'>" +
-        result.matches + "</b> detection(s).";
+      const result = await post("/api/jobs", { path });
+      $("scan-result").textContent = "Scan " + result.state + ". Progress appears in Antivirus.";
+      window.dispatchEvent(new CustomEvent("suite-scan-started"));
       loadFindings();
     } catch (err) {
       $("scan-result").innerHTML = '<span style="color:var(--critical)">' + esc(err.message) + '</span>';
@@ -1048,7 +1049,7 @@ function wire() {
     }
   });
 
-  $("sensitivity").addEventListener("input", (event) => {
+  $("sensitivity")?.addEventListener("input", (event) => {
     state.sensitivity = Number(event.target.value);
     $("sensitivity-value").textContent = state.sensitivity + "%";
     localStorage.setItem("suite-sensitivity", String(state.sensitivity));
@@ -1125,4 +1126,3 @@ loadFindings();
 loadIntel();
 loadShield();
 connectStream();
-setInterval(refresh, 15000);

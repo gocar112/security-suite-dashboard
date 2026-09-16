@@ -3,12 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#07111f">
-<title>Security Suite / Signal Room</title>
+<meta name="theme-color" content="#191b1e">
+<title>Security Suite / Console</title>
 <link rel="stylesheet" href="/styles.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2347e0c0' d='M12 2 4 5.7v5.9c0 4.7 3.3 8.7 8 10.4 4.7-1.7 8-5.7 8-10.4V5.7L12 2Z'/></svg>">
 </head>
 <body>
+<nav id="console-nav" class="console-nav" aria-label="Security workspace"></nav>
 <div class="shell">
   <header class="topbar">
     <div class="brand-lockup">
@@ -32,8 +33,6 @@
     <section class="mission-grid" aria-label="Mission overview">
       <div class="mission-copy">
         <div class="eyebrow"><span class="eyebrow-pip"></span>Convergence control / <span id="intel-status">warming up</span></div>
-        <h1>Keep the signal<br><em>inside the line.</em></h1>
-        <p>One room for YARA detections, the indicators pulled out of them, and the vulnerability feeds that explain what needs attention next.</p>
         <div class="mission-meta"><span><b class="meta-led teal"></b><span id="meta-rules">YARA sensor</span></span><span><b class="meta-led amber"></b><span id="meta-adapters">intel adapters</span></span><span><b class="meta-led lilac"></b><span id="meta-iocs">indicator extraction</span></span></div>
       </div>
 
@@ -142,6 +141,8 @@
   </main>
   <footer class="footer"><span>Security Suite / convergence console</span><span id="footer-sources">NVD · OSV · VirusTotal live · KEV · GitHub · Vuls · ClawFire linked</span></footer>
 </div>
+<script src="/lucide.js"></script>
 <script src="/app.js"></script>
+<script src="/console.js"></script>
 </body>
 </html>

@@ -91,16 +91,17 @@ def install_windows(remove: bool, startup: bool) -> Path:
         "$ws = New-Object -ComObject WScript.Shell; "
         "$l = $ws.CreateShortcut(%s); "
         "$l.TargetPath = %s; "
-        "$l.Arguments = 'run.py'; "
+        "$l.Arguments = %s; "
         "$l.WorkingDirectory = %s; "
         "$l.Description = 'Security Suite - YARA SOC detector with live dashboard'; "
-        % (ps_quote(str(target)), ps_quote(str(quiet_python())), ps_quote(str(ROOT)))
+        % (ps_quote(str(target)), ps_quote(str(quiet_python())),
+           ps_quote('"' + str(ROOT / "run.py") + '"'), ps_quote(str(ROOT)))
     )
     if icon:
         script += "$l.IconLocation = %s; " % ps_quote(str(icon) + ",0")
     script += "$l.Save()"
     subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True,
-                   capture_output=True)
+                   capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return target
 
 

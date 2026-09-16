@@ -25,7 +25,7 @@ class Monitor(threading.Thread):
         self.store = store
         self.telemetry = telemetry
         self.remediator = remediator
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
         self._pause = threading.Event()
         # Never scan our own output: findings.ndjson contains the strings that
         # tripped the rules, so scanning it would alert on itself forever.
@@ -53,7 +53,7 @@ class Monitor(threading.Thread):
 
     # --------------------------------------------------------------- control
     def stop(self) -> None:
-        self._stop.set()
+        self._stop_event.set()
 
     def pause(self) -> None:
         self._pause.set()
@@ -67,7 +67,7 @@ class Monitor(threading.Thread):
 
     def status(self) -> dict:
         return {
-            "running": self.is_alive() and not self._stop.is_set(),
+            "running": self.is_alive() and not self._stop_event.is_set(),
             "paused": self.paused,
             "watch_paths": list(self.cfg.watch_paths),
             "recursive": self.cfg.recursive,
@@ -84,6 +84,8 @@ class Monitor(threading.Thread):
         if not self.cfg.scan_existing_on_start:
             # Baseline: remember what is already there so we only alert on new work.
             for path, stat in self._iter_files():
+                if self._stop_event.is_set():
+                    return
                 self._scanned[path] = (stat.st_mtime, stat.st_size)
         self.store.broadcast(
             {
@@ -92,14 +94,14 @@ class Monitor(threading.Thread):
                 "message": "Monitoring " + ", ".join(self.cfg.watch_paths),
             }
         )
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             if not self._pause.is_set():
                 try:
                     self._sweep()
                     self.last_error = None
                 except Exception as exc:  # keep the monitor alive through bad paths
                     self.last_error = str(exc)
-            self._stop.wait(self.cfg.poll_interval)
+            self._stop_event.wait(self.cfg.poll_interval)
 
     def _iter_files(self):
         for root in self.cfg.watch_paths:
@@ -108,6 +110,8 @@ class Monitor(threading.Thread):
                 continue
             walker = root_path.rglob("*") if self.cfg.recursive else root_path.glob("*")
             for entry in walker:
+                if self._stop_event.is_set():
+                    return
                 try:
                     if not entry.is_file():
                         continue
@@ -181,7 +185,6 @@ class Monitor(threading.Thread):
                 }
             )
 
-        self.scanned_count += 1
         if result.get("skipped"):
             return self.store.add(
                 {
@@ -195,6 +198,7 @@ class Monitor(threading.Thread):
                 persist=False,
             )
 
+        self.scanned_count += 1
         if not result["matches"]:
             event = dict(result)
             event.update({"event_type": "scan", "trigger": trigger, "verdict": "clean"})
@@ -206,7 +210,7 @@ class Monitor(threading.Thread):
         event.update(
             {
                 "event_type": "yara_match",
-                "verdict": "malicious",
+                "verdict": "rule_match",
                 "trigger": trigger,
                 "rule_names": [m["rule"] for m in result["matches"]],
                 "telemetry": telemetry,
@@ -234,37 +238,43 @@ class Monitor(threading.Thread):
         )
         return stored
 
-    def scan_path(self, target: str, max_files: int = 5000) -> dict:
-        """On-demand scan of a file or directory tree."""
-        root = Path(target).expanduser()
-        if not root.exists():
-            return {"error": "Path not found: " + str(root)}
-        files: list[Path] = []
-        if root.is_file():
-            files = [root]
-        else:
-            for entry in root.rglob("*"):
-                try:
-                    if entry.is_file() and entry.suffix.lower() not in self.cfg.ignore_suffixes:
-                        files.append(entry)
-                except OSError:
-                    continue
-                if len(files) >= max_files:
-                    break
-        started = time.perf_counter()
-        hits = 0
-        for entry in files:
-            event = self.scan_and_record(str(entry), trigger="manual")
-            if event.get("event_type") == "yara_match":
-                hits += 1
-            try:
-                stat = entry.stat()
-                self._scanned[str(entry)] = (stat.st_mtime, stat.st_size)
-            except OSError:
-                pass
-        return {
-            "path": str(root),
-            "files_scanned": len(files),
-            "matches": hits,
+    def scan_path(self, target: str, max_files: int | None = None) -> dict:
+        """Wait cooperatively for a streaming scan; max_files is deprecated."""
+        import warnings
+        from .jobs import ScanJobs
+
+        if max_files is not None:
+            warnings.warn("max_files is deprecated and ignored; scans stream the complete tree.",
+                          FutureWarning, stacklevel=2)
+        # Keep one owner across concurrent CLI requests, including cancellation.
+        lock = self.__dict__.setdefault("_scan_path_lock", threading.Lock())
+        with lock:
+            jobs = self.__dict__.get("_scan_path_jobs")
+            if jobs is None:
+                jobs = self._scan_path_jobs = ScanJobs(self)
+            started = time.perf_counter()
+            snapshot = jobs.start(target)
+            worker = jobs._worker
+        if snapshot.get("error"):
+            return snapshot
+        identifier = snapshot["id"]
+        try:
+            while snapshot["state"] in ("queued", "running"):
+                if self._stop_event.is_set():
+                    jobs.cancel(identifier)
+                worker.join(0.1)
+                snapshot = next(job for job in jobs.status()["jobs"] if job["id"] == identifier)
+        except BaseException:
+            jobs.cancel(identifier)
+            while worker.is_alive():
+                worker.join(0.1)
+            raise
+        result = {
+            "path": snapshot["path"], "files_scanned": snapshot["scanned"],
+            "matches": snapshot["matches"], "skipped": snapshot["skipped"],
+            "errors": snapshot["errors"], "state": snapshot["state"],
             "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
         }
+        if snapshot["error"]:
+            result["error"] = snapshot["error"]
+        return result

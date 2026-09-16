@@ -189,7 +189,7 @@ class YaraEngine:
         with self._lock:
             rules = self.rules
         started = time.perf_counter()
-        raw_matches = rules.match(data=data) if rules else []
+        raw_matches = rules.match(data=data, timeout=10) if rules else []
         return self._result(label, data, raw_matches, started, len(data))
 
     def scan_file(self, path: str) -> dict:

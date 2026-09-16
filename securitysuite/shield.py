@@ -114,11 +114,11 @@ PATCH_PLAYBOOKS = (
 
 def _status_from_env(key: str, url_key: str = "") -> dict:
     configured = bool(os.getenv(key, "").strip())
-    url = os.getenv(url_key, "").strip() if url_key else ""
+    if url_key:
+        configured = configured and bool(os.getenv(url_key, "").strip())
     return {
         "configured": configured,
         "status": "configured" if configured else "not configured",
-        "endpoint": url,
     }
 
 
@@ -165,6 +165,7 @@ def posture(cfg, engine, store, remediator=None) -> dict:
     return {
         "platform": platform.system() or os.name,
         "score": score,
+        "score_is_heuristic": True,
         "rules": rule_count,
         "attack_reasons": len(reasons),
         "attack_reasons_sample": reasons[:18],

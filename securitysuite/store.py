@@ -74,6 +74,8 @@ class EventStore:
     # ----------------------------------------------------------------- write
     def _count(self, event: dict) -> None:
         self.counters["type:" + str(event.get("event_type", "unknown"))] += 1
+        if event.get("event_type") in ("scan", "yara_match") and not event.get("skipped"):
+            self.counters["files_scanned"] += 1
         if event.get("event_type") == "yara_match":
             self.counters["sev:" + str(event.get("severity", "info"))] += 1
 
@@ -218,6 +220,7 @@ class EventStore:
     def stats(self) -> dict:
         with self._lock:
             items = list(self._events)
+            total_scanned = self.counters["files_scanned"]
         by_sev: Counter = Counter()
         by_rule: Counter = Counter()
         open_alerts = 0
@@ -238,7 +241,7 @@ class EventStore:
             elif kind == "error":
                 errors += 1
         return {
-            "files_scanned": clean_scans + matches,
+            "files_scanned": total_scanned,
             "matches": matches,
             "open_alerts": open_alerts,
             "errors": errors,

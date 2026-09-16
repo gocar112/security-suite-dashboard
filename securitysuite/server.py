@@ -9,15 +9,21 @@ import json
 import queue
 import threading
 import time
-import urllib.error
-import urllib.request
+import csv
+import io
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .ioc import summarise, to_csv
+from .connectors import OPNsenseConnector, BitdefenderConnector
+from .inventory import NetworkInventory
+from .jobs import ScanJobs
+from .playbooks import PlaybookService, Training
 from .shield import posture
 from .store import now_iso
+from .workspace import Workspace
+from . import __version__
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 CONTENT_TYPES = {
@@ -26,8 +32,29 @@ CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
+    ".json": "application/json; charset=utf-8",
 }
 MAX_BODY = 64 * 1024
+
+
+def _strict_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON field: " + key)
+        result[key] = value
+    return result
+
+
+def _invalid_constant(value):
+    raise ValueError("JSON cannot contain " + value)
+
+
+def _integer(value, default=100, maximum=5000):
+    value = default if value is None else value
+    if isinstance(value, bool) or not str(value).isdigit():
+        raise ValueError("Expected a positive integer")
+    return max(1, min(maximum, int(value)))
 
 INTEL_SOURCES = (
     ("vuls", "https://github.com/future-architect/vuls", "bridge"),
@@ -55,6 +82,13 @@ class Context:
         self.vt = vt
         self.remediator = remediator
         self.guidance = guidance
+        self.jobs = ScanJobs(monitor)
+        self.inventory = NetworkInventory(store)
+        self.workspace = Workspace(cfg, engine, store)
+        self.playbooks = PlaybookService(cfg, store, remediator, guidance)
+        self.training = Training()
+        self.opnsense = OPNsenseConnector()
+        self.bitdefender = BitdefenderConnector()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -72,8 +106,15 @@ class Handler(BaseHTTPRequestHandler):
     # ----------------------------------------------------------- primitives
     def _host_allowed(self) -> bool:
         """Block DNS-rebinding: only localhost names may talk to the API."""
-        host = (self.headers.get("Host") or "").split(":")[0].strip("[]").lower()
-        return host in ("localhost", "127.0.0.1", "::1", "")
+        try:
+            value = self.headers.get("Host") or ""
+            parsed = urlparse("http://" + value)
+            return (parsed.hostname in ("localhost", "127.0.0.1", "::1") and
+                    (parsed.port or 80) == self.server.server_port and
+                    not parsed.username and not parsed.password and not parsed.path and
+                    not parsed.query and not parsed.fragment)
+        except ValueError:
+            return False
 
     def _csrf_ok(self) -> tuple:
         """Reject cross-origin writes.
@@ -90,8 +131,7 @@ class Handler(BaseHTTPRequestHandler):
             return False, "Content-Type must be application/json"
         origin = self.headers.get("Origin")
         if origin:
-            host = urlparse(origin).hostname or ""
-            if host.lower() not in ("localhost", "127.0.0.1", "::1"):
+            if origin != "http://" + (self.headers.get("Host") or ""):
                 return False, "cross-origin request refused"
         site = (self.headers.get("Sec-Fetch-Site") or "").lower()
         if site and site not in ("same-origin", "none"):
@@ -104,6 +144,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; "
+                         "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+                         "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
         for key, value in (extra or {}).items():
             self.send_header(key, value)
         self.end_headers()
@@ -115,17 +160,51 @@ class Handler(BaseHTTPRequestHandler):
                    "application/json; charset=utf-8")
 
     def _body(self) -> dict:
-        length = int(self.headers.get("Content-Length") or 0)
+        if self.headers.get("Transfer-Encoding"):
+            raise ValueError("Transfer-Encoding is not supported")
+        lengths = self.headers.get_all("Content-Length") or []
+        if len(lengths) != 1:
+            raise ValueError("Exactly one Content-Length header is required")
+        length = int(lengths[0])
         if length <= 0 or length > MAX_BODY:
-            return {}
+            raise ValueError("JSON body must be between 1 and 65536 bytes")
+        self.connection.settimeout(15)
+        raw = self.rfile.read(length)
+        if len(raw) != length:
+            raise ValueError("Incomplete JSON request body")
+        body = json.loads(raw, object_pairs_hook=_strict_object,
+                          parse_constant=_invalid_constant)
+        if type(body) is not dict:
+            raise ValueError("JSON body must be an object")
+        for field in ("confirm", "dry_run", "allow_directory", "services", "enabled"):
+            if field in body and type(body[field]) is not bool:
+                raise ValueError(field + " must be a boolean")
+        for field in ("path", "id", "action", "severity", "status", "note", "cidr", "text", "answer"):
+            if field in body and not isinstance(body[field], str):
+                raise ValueError(field + " must be a string")
+        for field in ("limit", "days"):
+            if field in body and (type(body[field]) is not int or body[field] < 1):
+                raise ValueError(field + " must be a positive integer")
+        if "extensions" in body and (not isinstance(body["extensions"], list) or
+                len(body["extensions"]) > 50 or
+                any(not isinstance(value, str) for value in body["extensions"])):
+            raise ValueError("extensions must be a list of at most 50 strings")
+        return body
+
+    def _discard_body(self):
+        """Drain small rejected requests before closing (Windows otherwise resets)."""
+        self.close_connection = True
         try:
-            return json.loads(self.rfile.read(length) or b"{}")
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            return {}
+            length = int(self.headers.get("Content-Length") or 0)
+            if 0 < length <= MAX_BODY and not self.headers.get("Transfer-Encoding"):
+                self.connection.settimeout(2)
+                self.rfile.read(length)
+        except (ValueError, OSError):
+            pass
 
     def _static(self, name: str):
         target = (WEB_DIR / name).resolve()
-        if not str(target).startswith(str(WEB_DIR.resolve())) or not target.is_file():
+        if not target.is_relative_to(WEB_DIR.resolve()) or not target.is_file():
             self._json({"error": "not found"}, 404)
             return
         ctype = CONTENT_TYPES.get(target.suffix, "application/octet-stream")
@@ -133,6 +212,16 @@ class Handler(BaseHTTPRequestHandler):
 
     # --------------------------------------------------------------- routes
     def do_GET(self):
+        try:
+            self._get()
+        except (ValueError, TypeError, UnicodeError, RecursionError) as exc:
+            self.close_connection = True
+            self._json({"error": str(exc)}, 400)
+        except (OSError, RuntimeError):
+            self.close_connection = True
+            self._json({"error": "Local service unavailable"}, 503)
+
+    def _get(self):
         if not self._host_allowed():
             self._json({"error": "host not allowed"}, 403)
             return
@@ -142,13 +231,50 @@ class Handler(BaseHTTPRequestHandler):
 
         if route == "/":
             self._static("index.html")
-        elif route in ("/app.js", "/styles.css", "/favicon.ico"):
+        elif route in ("/app.js", "/console.js", "/lucide.js", "/styles.css",
+                       "/favicon.ico", "/playbook.schema.json"):
             self._static(route.lstrip("/"))
         elif route == "/api/state":
             self._json(self._state())
+        elif route == "/api/instance":
+            self._json({"version": __version__, "findings_log": self.ctx.cfg.findings_log})
+        elif route == "/api/jobs":
+            self._json(self.ctx.jobs.status())
+        elif route == "/api/drives":
+            self._json({"drives": self.ctx.jobs.drives()})
+        elif route == "/api/inventory":
+            self._json(self.ctx.inventory.status())
+        elif route == "/api/inventory/export":
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(["ip", "mac", "services", "last_seen"])
+            for device in self.ctx.inventory.status()["devices"]:
+                writer.writerow([device["ip"], device["mac"],
+                                 ",".join(str(s["port"]) for s in device["services"]), device["last_seen"]])
+            self._send(200, output.getvalue().encode(), "text/csv; charset=utf-8",
+                       {"Content-Disposition": 'attachment; filename="network-inventory.csv"'})
+        elif route == "/api/workspace":
+            self._json({"policy": self.ctx.workspace.policy(),
+                        "native_av": self.ctx.workspace.native_av,
+                        "domains": self.ctx.workspace.domains()})
+        elif route == "/api/ids":
+            self._json({"alerts": self.ctx.store.events(limit=300, event_type="ids_alert")})
+        elif route == "/api/connectors":
+            self._json({"opnsense": self.ctx.opnsense.status(),
+                        "bitdefender": self.ctx.bitdefender.status()})
+        elif route == "/api/domains/export":
+            domains = self.ctx.workspace.domains()
+            content = "# Reviewed DNS hosts list. Import into your DNS filter to enforce.\n" + "\n".join(
+                "0.0.0.0 " + domain for domain in domains) + "\n"
+            self._send(200, content.encode(), "text/plain; charset=utf-8",
+                       {"Content-Disposition": 'attachment; filename="reviewed-blocklist.txt"'})
+        elif route == "/api/playbooks":
+            self._json(self.ctx.playbooks.list())
+        elif route == "/api/training":
+            self._json(self.ctx.training.list())
         elif route == "/api/findings":
             findings = self.ctx.store.events(
-                limit=int(params.get("limit", 200)),
+                limit=_integer(params.get("limit"), 200),
                 severity=params.get("severity"),
                 event_type=params.get("type"),
                 status=params.get("status"),
@@ -181,7 +307,7 @@ class Handler(BaseHTTPRequestHandler):
                 data["indicators"] = [
                     i for i in data["indicators"]
                     if i["type"] != "ipv4" or i.get("scope") == "external"]
-            limit = int(params.get("limit", 300))
+            limit = _integer(params.get("limit"), 300)
             data["shown"] = min(limit, len(data["indicators"]))
             data["indicators"] = data["indicators"][:limit]
             data["source_findings"] = len(events)
@@ -256,7 +382,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "nvd adapter not enabled"}, 503)
                 return
             self._json({"cves": self.ctx.nvd.cached_records(
-                limit=int(params.get("limit", 100)),
+                limit=_integer(params.get("limit"), 100),
                 severity=params.get("severity", ""))})
         elif route == "/api/nvd/cve":
             if self.ctx.nvd is None:
@@ -275,31 +401,79 @@ class Handler(BaseHTTPRequestHandler):
             if not query:
                 self._json({"error": "q is required"}, 400)
                 return
-            self._json(self.ctx.nvd.search(query, int(params.get("limit", 20))))
+            self._json(self.ctx.nvd.search(query, _integer(params.get("limit"), 20, 100)))
         elif route == "/api/stream":
-            self._stream()
+            if self.command == "HEAD":
+                self._send(200, b"", "text/event-stream")
+            else:
+                self._stream()
         else:
             self._json({"error": "not found"}, 404)
 
     do_HEAD = do_GET
 
     def do_POST(self):
+        try:
+            self._post()
+        except (ValueError, TypeError, UnicodeError, RecursionError) as exc:
+            self.close_connection = True
+            self._json({"error": str(exc)}, 400)
+        except RuntimeError as exc:
+            self._json({"error": str(exc)}, 409)
+        except OSError:
+            self.close_connection = True
+            self._json({"error": "Local operation failed; inspect permissions and disk space"}, 503)
+
+    def _post(self):
         if not self._host_allowed():
+            self._discard_body()
             self._json({"error": "host not allowed"}, 403)
             return
         route = urlparse(self.path).path.rstrip("/") or "/"
         allowed, why = self._csrf_ok()
         if not allowed:
+            self._discard_body()
             self._json({"error": why}, 403)
             return
         body = self._body()
 
-        if route == "/api/scan":
+        if route == "/api/jobs":
+            result = self.ctx.jobs.start(body.get("path", ""))
+            self._json(result, 409 if result.get("error") else 202)
+        elif route == "/api/jobs/cancel":
+            result = self.ctx.jobs.cancel(body.get("id", ""))
+            self._json(result, 404 if result.get("error") else 200)
+        elif route == "/api/inventory":
+            self._json(self.ctx.inventory.start(body.get("cidr", ""), body.get("services", False)), 202)
+        elif route == "/api/inventory/cancel":
+            self._json(self.ctx.inventory.cancel())
+        elif route == "/api/policy":
+            self._json(self.ctx.workspace.set_policy(body))
+        elif route == "/api/native-av":
+            self._json(self.ctx.workspace.check_native_av())
+        elif route == "/api/analysis":
+            self._json(self.ctx.workspace.analyze(body))
+        elif route == "/api/ids/import":
+            self._json(self.ctx.workspace.import_eve(body))
+        elif route == "/api/connectors/check":
+            self._json({"opnsense": self.ctx.opnsense.health(),
+                        "bitdefender": self.ctx.bitdefender.status()})
+        elif route == "/api/domains":
+            self._json(self.ctx.workspace.save_domains(body))
+        elif route in ("/api/playbooks/save", "/api/playbooks/run"):
+            result = (self.ctx.playbooks.save(body) if route.endswith("save")
+                      else self.ctx.playbooks.run(body))
+            self._json(result, 200 if result.get("ok") else 409)
+        elif route == "/api/training/grade":
+            result = self.ctx.training.grade(body.get("id"), body.get("answer"))
+            self._json(result, 200 if result.get("ok") else 400)
+        elif route == "/api/scan":
             target = str(body.get("path", "")).strip()
             if not target:
                 self._json({"error": "path is required"}, 400)
                 return
-            self._json(self.ctx.monitor.scan_path(target))
+            result = self.ctx.jobs.start(target)
+            self._json(result, 409 if result.get("error") else 202)
         elif route == "/api/monitor":
             action = str(body.get("action", "")).lower()
             if action == "pause":
@@ -325,7 +499,7 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/findings/clear":
             # Every other destructive route demands an explicit confirm; this
             # one wipes the whole dashboard, so it does too.
-            if not body.get("confirm"):
+            if body.get("confirm") is not True:
                 self._json({"error": "confirmation required",
                             "detail": "resend with confirm=true"}, 409)
                 return
@@ -339,7 +513,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.ctx.nvd is None:
                 self._json({"error": "nvd adapter not enabled"}, 503)
                 return
-            days = int(body.get("days") or getattr(self.ctx.cfg, "nvd_sync_days", 3))
+            days = _integer(body.get("days"), getattr(self.ctx.cfg, "nvd_sync_days", 3), 120)
             result = self.ctx.nvd.sync(days, getattr(self.ctx.cfg, "nvd_max_records", 4000))
             self.ctx.store.broadcast({
                 "event_type": "monitor", "timestamp": now_iso(),
@@ -386,6 +560,9 @@ class Handler(BaseHTTPRequestHandler):
             )
             self._json(result)
         elif route == "/api/triage":
+            if body.get("status", "acknowledged") not in (
+                    "new", "acknowledged", "resolved", "false_positive"):
+                raise ValueError("Unknown triage status")
             updated = self.ctx.store.set_status(
                 str(body.get("id", "")),
                 str(body.get("status", "acknowledged")),
@@ -402,6 +579,7 @@ class Handler(BaseHTTPRequestHandler):
     def _state(self) -> dict:
         cfg = self.ctx.cfg
         return {
+            "version": __version__,
             "stats": self.ctx.store.stats(),
             "monitor": self.ctx.monitor.status(),
             "engine": self.ctx.engine.info(),
@@ -424,19 +602,8 @@ class Handler(BaseHTTPRequestHandler):
     def _intel(self) -> dict:
         """Return source adapters without ever returning credentials to clients."""
         vt_key = str(getattr(self.ctx.cfg, "virustotal_api_key", "") or "").strip()
-        vt_status = "optional"
-        if vt_key:
-            request = urllib.request.Request(
-                "https://www.virustotal.com/api/v3/users/me",
-                headers={"x-apikey": vt_key, "Accept": "application/json"},
-            )
-            try:
-                with urllib.request.urlopen(request, timeout=2) as response:
-                    vt_status = "online" if response.status == 200 else "configured"
-            except urllib.error.HTTPError as exc:
-                vt_status = "rejected" if exc.code in (401, 403) else "rate limited" if exc.code == 429 else "configured"
-            except (urllib.error.URLError, TimeoutError, OSError):
-                vt_status = "offline"
+        vt_state = self.ctx.vt.status() if self.ctx.vt else {}
+        vt_status = "offline" if vt_state.get("last_error") else "ready" if vt_key else "optional"
         nvd_state = self._nvd_status()
         nvd_cached = int(nvd_state.get("cached") or 0)
         nvd_status = "offline" if nvd_state.get("last_error") else (
@@ -526,6 +693,8 @@ class DashboardServer(ThreadingHTTPServer):
 
 def serve(cfg, engine, store, telemetry, monitor, nvd=None, osv=None,
           vt=None, remediator=None, guidance=None) -> DashboardServer:
+    if cfg.host not in ("127.0.0.1", "localhost"):
+        raise ValueError("Dashboard must bind to loopback; remote control is not authenticated")
     httpd = DashboardServer((cfg.host, cfg.port), Handler)
     httpd.ctx = Context(cfg, engine, store, telemetry, monitor, nvd, osv, vt,
                         remediator, guidance)  # type: ignore[attr-defined]

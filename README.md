@@ -8,19 +8,26 @@
   <strong>A local SOC signal room for YARA detections, IOC pivots, CVE context, triage, and guarded remediation.</strong>
 </p>
 
-![Security Suite dashboard overview](docs/images/dashboard.png)
+![Security Suite tabbed console](docs/images/console-1440.png)
 
 Security Suite watches local folders, scans files against **1,004 YARA rules**,
 correlates detections with authentication telemetry, extracts indicators,
 enriches CVE findings with NVD/CISA context, models AV/IDS/IPS posture, and
-streams everything into a live browser dashboard.
+streams everything into a live browser dashboard. The tabbed console adds
+background drive scans, household device inventory, Suricata alert import,
+visual playbooks, a text-analysis lab, and local two-player training.
+
+This is a defensive workbench that supplements installed endpoint protection.
+It is not NSA affiliated or certified, and a low alert count does not establish
+that a computer or network is safe.
 
 ## Quick Links
 
 - Operator guide: [book/Security-Suite-Operator-Guide.md](book/Security-Suite-Operator-Guide.md)
 - Detection engineering field guide: [book/Detection-Engineering-in-Practice.pdf](book/Detection-Engineering-in-Practice.pdf)
 - Database summary: [docs/database-summary.md](docs/database-summary.md)
-- Main dashboard screenshot: [docs/images/dashboard.png](docs/images/dashboard.png)
+- Release summary: [docs/release-summary.md](docs/release-summary.md)
+- Main dashboard screenshot: [docs/images/console-1440.png](docs/images/console-1440.png)
 
 ## At A Glance
 
@@ -33,6 +40,11 @@ streams everything into a live browser dashboard.
 | Shield | Shows local AV, IDS, IPS, Bitdefender-ready, NVD, and CISA KEV defensive layers. |
 | Triage | Acknowledge, resolve, mark false positive, reopen, and clear dashboard lines with backup. |
 | Remediate | Quarantine, restore, delete, and purge detection targets behind hash checks, path confinement, and an audit trail. |
+| Drive scan | Walks a local drive in a background job without a file-count limit; shows progress, skips, errors and cancellation. |
+| Inventory | Discovers devices on an explicitly selected RFC1918 IPv4 subnet (/24 through /32), with optional checks of eight service ports. |
+| Playbooks | Drag or select skills, attach a stored finding, simulate, save, import/export JSON, and run approved actions. |
+| Analysis lab | Matches pasted text against YARA and extracts indicators without executing or storing the text. |
+| Training | Offers 500 synthetic defensive scenarios for two people sharing the same browser. These are tabletop questions, not validated exploit tests. |
 
 ## Quick Start
 
@@ -48,6 +60,9 @@ http://127.0.0.1:8787
 
 The server is built on Python's standard `http.server`, and the dashboard is
 plain HTML/CSS/JS. There is no frontend build step.
+If the default port is occupied, the launcher tries the next nine ports. It
+reuses a running console only when its version and workspace match. An explicit
+`--port` does not fall back. Use the URL printed by the launcher.
 
 Fresh machine setup:
 
@@ -61,6 +76,8 @@ Recommended verification before release:
 ```powershell
 python -m compileall securitysuite tools tests
 node --check web\app.js
+node --check web\console.js
+python -m unittest discover -s tests -p 'test_*.py' -v
 python tests\smoke.py
 python tools\summarize_database.py --output docs\database-summary.md
 ```
@@ -74,6 +91,76 @@ python tools\summarize_database.py --output docs\database-summary.md
 | `pywin32` | Optional, Windows only | Windows Security event-log telemetry |
 
 Python 3.10 or newer is recommended.
+
+## Workspace Tabs
+
+Overview keeps findings, indicator pivots, activity and logs together. Antivirus
+contains local-drive selection, scan jobs, and a Windows Security Center product
+check. Registered products are reported as registered; that check does not prove
+current protection or fresh signatures.
+
+IDS accepts up to 100 Suricata EVE NDJSON records per import. Only alert records
+are stored, and imported file paths cannot become remediation targets. IPS /
+Response contains the existing guarded containment controls and a persistent
+automatic-quarantine toggle. Automatic response requires an eligible matched
+rule with `confidence = "high"`, the configured severity threshold, a recorded
+hash that still matches, and a permitted root. Generated component rules and
+test rules never authorize automatic response. Rule authors should add this
+metadata only after tuning against benign samples. Deletion stays manual.
+
+Inventory checks one selected private IPv4 subnet at a time. Devices that block
+ping and expose none of the selected TCP ports may be missed; neighbor-cache
+entries may be stale. Port labels do not establish device identity or vulnerability.
+Run a local scanner on each computer to inspect its files. TVs and IoT devices
+can appear in inventory; their firmware is not scanned by this program.
+
+Playbooks accepts only the checked-in [schema](web/playbook.schema.json): annotate,
+guidance, and quarantine. Select a finding, build a sequence, and simulate it
+before running. External coding agents can generate matching JSON for import;
+the server validates every plan. Arbitrary generated scripts are not executed.
+Live steps stop on failure, and successful earlier steps are not rolled back.
+
+![Visual playbook builder with reviewed response steps](docs/images/console-playbooks.png)
+
+To use it: choose a stored detection, add skills, fill any annotation, then
+Validate and Simulate. Review the results before Execute. Every edit requires
+a fresh simulation. Start with guidance and annotation before adding quarantine.
+
+The analysis lab is static text analysis, not a virtual machine or malware
+execution sandbox. Training is local pass-and-play; it has no online multiplayer
+service. Display density can be increased for a TV, and every tab adapts to
+desktop, tablet and narrow screens.
+
+## OPNsense And DNS Filters
+
+Set `OPNSENSE_URL`, `OPNSENSE_API_KEY`, and `OPNSENSE_API_SECRET` in the local
+`.env`. Use an HTTPS private IPv4 origin with a trusted certificate. The
+Integrations tab performs a read-only IDS service-status check. A running service
+does not verify that IPS drop rules are enabled or that every network interface
+is covered. See [OPNsense IDS/IPS setup](https://docs.opnsense.org/manual/ips.html).
+
+The reviewed domain list can be saved and exported for import into a DNS filter.
+Saving a list does not block ads or spyware by itself. Use your gateway's DNS
+filter settings to enforce a reviewed list; see
+[OPNsense Unbound blocklists](https://docs.opnsense.org/manual/unbound.html).
+Rules should target malicious behavior and evidence, not country of origin.
+The Bitdefender panel reports setup only; the GravityZone control API is not
+implemented. Keep your installed antivirus enabled.
+
+## Repository Security
+
+[SECURITY.md](SECURITY.md) documents reporting and deployment boundaries.
+Dependabot configuration checks Python and Actions dependencies weekly; CodeQL
+analyzes Python and JavaScript on pushes, pull requests and its weekly schedule.
+CI runs the boundary and smoke checks on Windows, Linux and macOS. These checks
+do not certify malware-detection accuracy or test live household devices.
+
+Administrators should verify dependency graph, Dependabot security alerts,
+secret scanning, push protection and private vulnerability reporting under the
+repository's Security / Advanced Security settings. Configuration files alone
+do not enable those account-level settings. Follow the
+[GitHub repository-security quickstart](https://docs.github.com/en/code-security/getting-started/quickstart-for-securing-your-repository).
+Keep `.env`, runtime logs, device inventories and quarantine contents out of git.
 
 ## How To Use It
 
@@ -316,7 +403,21 @@ All endpoints are intended for localhost use. The server rejects non-loopback
 | POST | `/api/findings/clear` | Back up and clear active dashboard lines |
 | GET | `/api/rules` | Loaded rules and compile errors |
 | POST | `/api/rules/reload` | Recompile the YARA ruleset |
-| POST | `/api/scan` | Scan a file or directory |
+| POST | `/api/scan` | Start a background file/directory scan (202; poll `/api/jobs`) |
+| GET / POST | `/api/jobs` | Scan progress / start a job |
+| POST | `/api/jobs/cancel` | Request cooperative scan cancellation |
+| GET | `/api/drives` | List local fixed drives |
+| GET / POST | `/api/inventory` | Inventory snapshot / start explicit private-subnet discovery |
+| GET | `/api/inventory/export` | Export observed devices as CSV |
+| POST | `/api/ids/import` | Import validated Suricata EVE alerts |
+| GET | `/api/workspace` | Read response policy, native AV registration and reviewed domains |
+| POST | `/api/policy` | Update automatic-quarantine policy |
+| POST | `/api/analysis` | Analyze text without execution or persistence |
+| GET | `/api/playbooks` | Saved plans and allowed skills |
+| POST | `/api/playbooks/save` | Save a schema-validated plan |
+| POST | `/api/playbooks/run` | Simulate or execute approved steps on a stored finding |
+| GET | `/api/training` | Synthetic defensive scenarios |
+| POST | `/api/training/grade` | Grade one tabletop response |
 | POST | `/api/monitor` | Pause or resume monitoring |
 | POST | `/api/triage` | Acknowledge, resolve, false-positive, or reopen a finding |
 | GET | `/api/shield` | AV/IDS/IPS posture, attack-pressure library, and file split groups |
@@ -365,7 +466,7 @@ workflow:
 
 ## Security Notes
 
-- Keep the server bound to `127.0.0.1` unless you add authentication.
+- Keep the console on loopback; this release rejects non-local bind addresses.
 - Run as Administrator on Windows only if you need Security event-log telemetry.
 - Never paste API keys, GitHub tokens, passwords, or private keys into commits,
   issues, README files, or chat.

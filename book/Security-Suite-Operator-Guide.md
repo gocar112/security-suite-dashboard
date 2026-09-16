@@ -1,6 +1,6 @@
 # Security Suite Operator Guide
 
-Version: 2026-09-12
+Version: 2026-09-16
 
 This book explains how to run the Security Suite, read the dashboard, triage
 findings, pivot indicators, update the local vulnerability database, understand
@@ -28,6 +28,7 @@ restore, delete, purge, and clear lines.
 12. Release and GitHub workflow
 13. Troubleshooting
 14. Operator checklist
+15. Tabbed workspace and release upgrade
 
 ## 1. What this tool is
 
@@ -52,6 +53,11 @@ Core jobs:
 Important rule: remediation must act on a stored finding, not on a random path
 typed by a browser client. That is what keeps the delete and quarantine buttons
 from becoming arbitrary file tools.
+
+The current release also provides whole-drive scan jobs, private-network device
+inventory, Suricata alert import, visual response playbooks, static text analysis,
+and local two-player training. A rule hit can identify a vulnerable component or
+a suspicious string; review evidence before treating it as confirmed malware.
 
 ## 2. Quick start
 
@@ -438,3 +444,131 @@ After session:
 
 The goal is simple: move fast, keep evidence, and make every destructive action
 explain itself.
+
+## 15. Tabbed workspace and release upgrade
+
+The sidebar separates Overview, Antivirus, IDS, IPS / Response, Inventory,
+Playbooks, Analysis lab, Training, Integrations and Audit. Choose a work area without
+losing the live findings stream. The display-density setting supports larger
+screens; it does not change detection logic.
+
+### Scan a Drive
+
+In Antivirus, select a local drive or enter a file/folder path and start a job.
+The scanner streams entries instead of collecting a large file list. It has no
+5,000-file limit. Progress reports scanned files, matches, skipped entries,
+errors, and the current path. Cancellation takes effect after the current
+engine or operating-system call finishes.
+
+Large files above `max_file_mb` are reported as skipped. Permission failures,
+links/junctions, special files, Linux pseudo-filesystems, suite caches, quarantine,
+and generated state are excluded or reported. A completed walk does not mean
+every byte on the drive was inspected. Review skips and errors before deciding
+whether another scan is necessary. Scanning a drive never broadens remediation
+roots. The command-line `--scan` path uses the same traversal.
+
+### Inventory a Household Subnet
+
+In Inventory, enter the private IPv4 CIDR you manage, for example
+`192.168.1.0/24`. Choose discovery alone or enable the optional service checks.
+The scan accepts RFC1918 ranges, /24 through /32, with bounded concurrency and
+timeouts. It does not guess passwords, exploit devices, or change their settings.
+
+Each record shows an IP, an observed MAC where available, service-port labels
+and an observation timestamp. Unknown names remain unknown. A neighbor cache
+can be stale, and devices can refuse ping and service connections. The CSV is
+an inventory snapshot, not a list of certified safe devices. Each computer
+needs its own local endpoint scanner for file inspection. Router/TV/IoT firmware
+requires vendor-specific update checks.
+
+### Import Network Alerts
+
+IDS accepts Suricata EVE NDJSON exported from your sensor. Paste up to 100
+records / 48 KB and import. Only alert records are stored; repeated records are
+deduplicated within the running session. Invalid batches are rejected before
+any record is written. Imported file paths and hashes are deliberately not
+trusted as local remediation targets.
+
+### Build a Playbook Without Coding
+
+Select or drag a stored YARA finding into Playbooks. Select or drag skills into
+the sequence: annotate, guidance, and quarantine. Reorder or remove steps,
+name the plan, save it, and simulate it. Simulation does not annotate a finding,
+move a file, or perform external CVE lookups. Review any refusal before running.
+
+Plans use `web/playbook.schema.json`, version 1, with at most 12 steps. Export
+JSON to share a plan, or import schema-compatible JSON produced by a coding
+agent. Unknown fields and actions are refused. Generated JavaScript, PowerShell,
+Python and shell commands are not executed by this tool. Live quarantine needs
+confirmation and uses the same stored-finding, current-hash, protected-path and
+permitted-root checks as manual containment. A live sequence stops on failure;
+successful earlier steps are not rolled back.
+
+### Analyze Text and Practice
+
+Analysis lab runs YARA and indicator extraction on pasted text without executing
+or persisting it. A match needs review; no match does not establish safety. This
+is static analysis, not a malware-execution VM. Use an isolated external lab for
+behavioral malware research rather than executing samples on your workstation.
+
+Training offers 500 synthetic defensive tabletop questions for two players
+sharing a browser. Scores reflect chosen responses. These questions are not
+500 exploit reproductions or 500 validated antivirus tests. They do not touch
+the finding log or remediation state.
+
+### Automatic Response and DNS Lists
+
+The response toggle persists an automatic-quarantine policy. Automatic actions
+require `confidence = "high"` in an eligible matched rule, the configured severity
+threshold, a recorded hash, and a permitted file path. Component/version markers
+and test rules cannot authorize automatic response. The shipped heuristic rules
+are not automatically promoted to high-confidence: tune against benign evidence
+before adding that metadata. Automatic deletion is refused; use recoverable
+quarantine. All action attempts and refusals are audited.
+
+The IPS / Response tab saves a reviewed domain list and exports DNS hosts entries.
+It does not enforce ad or spyware blocking. Import and activate the list in a
+DNS filter you administer. Do not assume nationality identifies malicious code.
+OPNsense's Unbound documentation covers DNS filtering:
+https://docs.opnsense.org/manual/unbound.html.
+
+For OPNsense IDS status, put `OPNSENSE_URL`, `OPNSENSE_API_KEY`, and
+`OPNSENSE_API_SECRET` in the local `.env`. Use a private IPv4 HTTPS origin and
+a trusted certificate. The connection check is read-only, refuses redirects,
+and does not return credentials. A running IDS service does not attest to IPS
+drop rules or full household coverage. See https://docs.opnsense.org/manual/ips.html.
+GravityZone remains an offline setup indicator; keep installed endpoint
+protection enabled.
+
+### Repository Security and Release Checks
+
+The repo includes `SECURITY.md`, weekly Dependabot configuration, Python and
+JavaScript CodeQL analysis, and a Windows/Linux/macOS CI matrix. Before release:
+
+```powershell
+python -m compileall securitysuite tools tests
+node --check web/app.js
+node --check web/console.js
+python -m unittest discover -s tests -p 'test_*.py' -v
+python tests/smoke.py
+```
+
+Administrators must separately verify dependency graph, security alerts, secret
+scanning, push protection, and private vulnerability reporting in GitHub.
+Account-level feature availability varies; adding workflows does not activate
+every setting. Keep secrets and local evidence out of commits. Review the
+repo security quickstart provided with this release and `SECURITY.md`.
+
+The Windows shortcut uses `pythonw.exe` and an absolute script path so no
+PowerShell console appears. Recreate it with `python install_shortcut.py`; add
+per-user sign-in startup with `python install_shortcut.py --startup`. Startup
+does not arm automatic remediation. When the default port is busy, the launcher
+tries nine alternatives; an explicit `--port` never falls back. A second launch
+reuses only the same-version console for the same workspace.
+
+See [console overview](../docs/images/console-1440.png),
+[drive scan controls](../docs/images/console-antivirus.png) and
+[playbook builder](../docs/images/console-playbooks.png) for the actual layout.
+
+This release has no NSA affiliation or certification and does not guarantee
+complete malware detection. Screenshots in `docs/images` show the actual console.

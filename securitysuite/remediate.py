@@ -121,6 +121,10 @@ class Remediator:
             value = getattr(self.cfg, attr, None)
             if value:
                 roots.append(Path(value))
+        # Workbench sidecars may be configured outside the project tree.
+        triage = Path(self.cfg.triage_file)
+        roots.extend(triage.with_name(name) for name in (
+            "playbooks.json", "response-policy.json", "blocked-domains.json"))
         return [str(r) for r in roots]
 
     def _carve_outs(self) -> list:
@@ -293,6 +297,17 @@ class Remediator:
             if not dry_run:
                 self._audit(dict(result, outcome="refused"))
             return result
+
+        if trigger == "auto":
+            refusal = self._auto_refusal(finding, action)
+            if refusal:
+                result = {"ok": False, "action": action, "finding": finding_id,
+                          "dry_run": bool(dry_run), "trigger": trigger,
+                          "refused": refusal}
+                if not dry_run:
+                    self._audit(dict(result, outcome="refused"))
+                return result
+            allow_directory = False
 
         if action in ("restore", "purge"):
             return self._from_quarantine(finding_id, finding, action,
@@ -585,15 +600,56 @@ class Remediator:
         }
 
     # --------------------------------------------------------------- auto rule
+    def _auto_refusal(self, finding: dict, action: str) -> str:
+        """Require an explicit, eligible rule match for unattended quarantine."""
+        if getattr(self.cfg, "auto_remediate", False) is not True:
+            return "automatic remediation is disabled"
+        if action != "quarantine":
+            return "automatic action must be quarantine"
+        if finding.get("event_type") != "yara_match":
+            return "not a detection"
+        threshold = getattr(self.cfg, "auto_remediate_severity", "critical")
+        if not isinstance(threshold, str) or threshold not in SEVERITY_RANK:
+            return "invalid automatic severity threshold"
+
+        matches = finding.get("matches")
+        if isinstance(matches, list):
+            for match in matches:
+                if not isinstance(match, dict):
+                    continue
+                meta = match.get("meta")
+                tags = match.get("tags")
+                if not isinstance(meta, dict) or not isinstance(tags, list):
+                    continue
+                if not all(isinstance(tag, str) for tag in tags):
+                    continue
+                tags = {tag.lower() for tag in tags}
+                name = match.get("rule")
+                namespace = match.get("namespace")
+                if not isinstance(name, str) or not name:
+                    continue
+                if not isinstance(namespace, str) or not namespace:
+                    continue
+                if (tags.intersection({"test", "vulnerable_component"})
+                        or namespace.lower() in {"demo", "builtin", "nvd_components"}
+                        or name.lower().startswith(("nvd_cve_", "demo_", "eicar_",
+                                                    "securitysuite_fallback_"))
+                        or meta.get("generator") == "nvd-rulegen"):
+                    continue
+                confidence = meta.get("confidence")
+                severity = match.get("severity")
+                # Confidence and severity must belong to the same real match.
+                if (isinstance(confidence, str) and confidence.strip().lower() == "high"
+                        and isinstance(severity, str) and severity in SEVERITY_RANK
+                        and SEVERITY_RANK[severity] <= SEVERITY_RANK[threshold]):
+                    return ""
+        return "no eligible high-confidence rule match"
+
     def consider_auto(self, finding: dict) -> dict | None:
-        """Called by the monitor. Returns None unless the opt-in rule applies."""
-        if not getattr(self.cfg, "auto_remediate", False):
+        """Consider an opt-in detection; act enforces the automatic policy."""
+        if getattr(self.cfg, "auto_remediate", False) is not True:
             return None
         if finding.get("event_type") != "yara_match":
-            return None
-        threshold = getattr(self.cfg, "auto_remediate_severity", "critical")
-        rank = SEVERITY_RANK.get(finding.get("severity", "info"), 99)
-        if rank > SEVERITY_RANK.get(threshold, 0):
             return None
         action = getattr(self.cfg, "auto_remediate_action", "quarantine")
         return self.act(finding["id"], action, confirm=True, trigger="auto")
