@@ -12,6 +12,7 @@ import time
 import traceback
 import urllib.error
 import urllib.request
+from collections import Counter, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -49,6 +50,12 @@ MAX_BODY = 64 * 1024
 VT_STATUS_TTL = 120.0
 _VT_STATUS_CACHE: dict = {}
 _VT_STATUS_LOCK = threading.Lock()
+MAX_ACCESS_LOG = 160
+FIREWALL_LOGS = (
+    ("windows_firewall", Path("C:/Windows/System32/LogFiles/Firewall/pfirewall.log")),
+    ("ufw", Path("/var/log/ufw.log")),
+    ("kernel", Path("/var/log/kern.log")),
+)
 
 INTEL_SOURCES = (
     ("vuls", "https://github.com/future-architect/vuls", "bridge"),
@@ -99,7 +106,13 @@ class Handler(BaseHTTPRequestHandler):
     # ----------------------------------------------------------- primitives
     def _host_allowed(self) -> bool:
         """Block DNS-rebinding: only localhost names may talk to the API."""
-        host = (self.headers.get("Host") or "").split(":")[0].strip("[]").lower()
+        raw = (self.headers.get("Host") or "").strip()
+        if not raw:
+            return True
+        try:
+            host = (urlparse("//" + raw).hostname or "").lower()
+        except ValueError:
+            return False
         return host in ("localhost", "127.0.0.1", "::1", "")
 
     def _csrf_ok(self) -> tuple:
@@ -126,6 +139,7 @@ class Handler(BaseHTTPRequestHandler):
         return True, ""
 
     def _send(self, code: int, body: bytes, content_type: str, extra: dict | None = None):
+        self._record_access(code)
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -139,6 +153,21 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
+    def _record_access(self, code: int):
+        log = getattr(self.server, "access_log", None)  # type: ignore[attr-defined]
+        if log is None:
+            return
+        path = urlparse(getattr(self, "path", "")).path or "/"
+        client = self.client_address[0] if self.client_address else ""
+        log.append({
+            "timestamp": now_iso(),
+            "method": self.command,
+            "path": path,
+            "status": code,
+            "client": client,
+            "agent": (self.headers.get("User-Agent") or "")[:80],
+        })
+
     def _json(self, payload, code: int = 200):
         self._send(code, json.dumps(payload, default=str).encode("utf-8"),
                    "application/json; charset=utf-8")
@@ -146,7 +175,7 @@ class Handler(BaseHTTPRequestHandler):
     def _body(self) -> dict:
         try:
             length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
+        except (TypeError, ValueError):
             return {}
         if length <= 0 or length > MAX_BODY:
             return {}
@@ -252,6 +281,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self.ctx.engine.info())
         elif route == "/api/telemetry":
             self._json(self.ctx.telemetry.recent(force=params.get("force") == "1"))
+        elif route == "/api/logs":
+            self._json(self._logs())
         elif route == "/api/intel":
             self._json(self._intel())
         elif route == "/api/iocs":
@@ -584,6 +615,118 @@ class Handler(BaseHTTPRequestHandler):
             "sources": sources,
         }
 
+    # ------------------------------------------------------------------ logs
+    def _logs(self) -> dict:
+        events = self.ctx.store.events(limit=500, event_type="all")
+        firewall = self._firewall()
+        return {
+            "synced_at": now_iso(),
+            "behavior": self._behavior(events, firewall),
+            "server": {
+                "requests": list(reversed(list(
+                    getattr(self.server, "access_log", [])  # type: ignore[attr-defined]
+                )))[:60],
+            },
+            "firewall": firewall,
+        }
+
+    def _behavior(self, events: list[dict], firewall: dict) -> dict:
+        by_type = Counter(str(e.get("event_type", "unknown")) for e in events)
+        remediation = [e for e in events if e.get("event_type") == "remediation"]
+        destructive = [
+            e for e in remediation
+            if str(e.get("action", "")).lower() in ("delete", "purge")
+            or str(e.get("outcome", "")).lower() in ("deleted", "purged")
+        ]
+        refused = [e for e in remediation if e.get("refused")]
+        return {
+            "events": len(events),
+            "detections": by_type.get("yara_match", 0),
+            "clean_scans": by_type.get("scan", 0),
+            "errors": by_type.get("error", 0),
+            "remediation": len(remediation),
+            "destructive_actions": len(destructive),
+            "refused_actions": len(refused),
+            "firewall_blocks": firewall.get("blocked", 0),
+            "recent_delete": destructive[:6],
+        }
+
+    def _firewall(self) -> dict:
+        for source, path in FIREWALL_LOGS:
+            if not path.exists():
+                continue
+            try:
+                lines = self._tail_lines(path)
+            except OSError as exc:
+                return {
+                    "status": "error",
+                    "source": source,
+                    "path": str(path),
+                    "detail": str(exc),
+                    "events": [],
+                    "blocked": 0,
+                    "allowed": 0,
+                }
+            events = self._parse_firewall(source, path, lines)
+            blocked = sum(1 for e in events if e.get("action") == "block")
+            allowed = sum(1 for e in events if e.get("action") == "allow")
+            return {
+                "status": "ok",
+                "source": source,
+                "path": str(path),
+                "events": events[-40:],
+                "blocked": blocked,
+                "allowed": allowed,
+            }
+        tried = ", ".join(str(path) for _, path in FIREWALL_LOGS)
+        return {
+            "status": "unavailable",
+            "source": "firewall_log",
+            "detail": "no firewall log found; enable Windows Firewall logging or UFW logging",
+            "tried": tried,
+            "events": [],
+            "blocked": 0,
+            "allowed": 0,
+        }
+
+    def _tail_lines(self, path: Path, size: int = 200_000) -> list[str]:
+        with path.open("rb") as handle:
+            handle.seek(0, 2)
+            end = handle.tell()
+            handle.seek(max(0, end - size))
+            return handle.read().decode("utf-8", errors="replace").splitlines()
+
+    def _parse_firewall(self, source: str, path: Path, lines: list[str]) -> list[dict]:
+        events = []
+        for line in lines:
+            text = line.strip()
+            if not text or text.startswith("#"):
+                continue
+            lower = text.lower()
+            if "drop" in lower or "block" in lower or "deny" in lower:
+                action = "block"
+            elif "allow" in lower:
+                action = "allow"
+            else:
+                continue
+            parts = text.split()
+            stamp = " ".join(parts[:2]) if len(parts) >= 2 else ""
+            src = next((p.split("=", 1)[1] for p in parts if p.startswith("SRC=")), "")
+            dst = next((p.split("=", 1)[1] for p in parts if p.startswith("DST=")), "")
+            if source == "windows_firewall" and len(parts) >= 8:
+                src = src or parts[4]
+                dst = dst or parts[5]
+            events.append({
+                "timestamp": stamp,
+                "source": source,
+                "path": str(path),
+                "action": action,
+                "src": src,
+                "dst": dst,
+                "line": text[:220],
+            })
+        return events
+
     # ------------------------------------------------------------------ SSE
     def _stream(self):
         if self.command == "HEAD":
@@ -591,6 +734,7 @@ class Handler(BaseHTTPRequestHandler):
             # enter the loop below and hold a thread open forever.
             self._send(200, b"", "text/event-stream")
             return
+        self._record_access(200)
         sub = self.ctx.store.subscribe()
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -644,6 +788,7 @@ def serve(cfg, engine, store, telemetry, monitor, nvd=None, osv=None,
     httpd = DashboardServer((cfg.host, cfg.port), Handler)
     httpd.ctx = Context(cfg, engine, store, telemetry, monitor, nvd, osv, vt,
                         remediator, guidance)  # type: ignore[attr-defined]
+    httpd.access_log = deque(maxlen=MAX_ACCESS_LOG)  # type: ignore[attr-defined]
     thread = threading.Thread(target=httpd.serve_forever, name="securitysuite-http",
                               daemon=True)
     thread.start()

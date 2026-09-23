@@ -22,9 +22,11 @@ actions such as quarantine, restore, delete, purge, and clear lines.
 8. Remediation workflow
 9. Clear lines and log backups
 10. Database and NVD updates
-11. Release and GitHub workflow
-12. Troubleshooting
-13. Operator checklist
+11. Behavior, firewall, and server logs
+12. Home security system strategy
+13. Release and GitHub workflow
+14. Troubleshooting
+15. Operator checklist
 
 ## 1. What this tool is
 
@@ -121,7 +123,10 @@ Right sidebar:
 
 - On-demand scan accepts a local path.
 - Namespaces and severity panels summarize the current dataset.
-- Recent sources summarize scan origins.
+- Auth telemetry summarizes failed-logon correlation.
+- Behavior logs show local server requests, firewall log status, and destructive
+  action counters.
+- Ruleset and sensor panels show loaded rules and watched paths.
 
 ## 4. Running scans
 
@@ -285,7 +290,74 @@ Operational pattern:
 3. Commit the code and summary together.
 4. Let GitHub Actions run the Python YAML workflow.
 
-## 11. Release and GitHub workflow
+## 11. Behavior, firewall, and server logs
+
+The dashboard includes a Behavior logs panel for the parts of a home SOC that
+are easy to miss when you only look at detections.
+
+It shows:
+
+- Total recent events from the local finding store.
+- Detections, clean scans, errors, remediation actions, destructive actions,
+  and refused actions.
+- Firewall allow/block lines when a supported firewall log exists.
+- Recent local dashboard/API requests.
+
+The firewall lane checks common local log paths:
+
+```text
+C:\Windows\System32\LogFiles\Firewall\pfirewall.log
+/var/log/ufw.log
+/var/log/kern.log
+```
+
+If no firewall log is present, the dashboard reports that honestly. It does not
+invent firewall data. Enable Windows Firewall logging or UFW logging, restart
+the suite, and the panel will begin showing parsed allow/block lines.
+
+Windows firewall logging, run as Administrator:
+
+```powershell
+netsh advfirewall set currentprofile logging filename "%systemroot%\system32\LogFiles\Firewall\pfirewall.log"
+netsh advfirewall set currentprofile logging maxfilesize 4096
+netsh advfirewall set currentprofile logging droppedconnections enable
+netsh advfirewall set currentprofile logging allowedconnections enable
+```
+
+Read the server request tail for:
+
+- Unexpected non-local clients.
+- API errors from stale browser tabs.
+- Repeated remediation or clear requests.
+
+Security rule: keep the server bound to `127.0.0.1` unless authentication and a
+real deployment plan are added.
+
+## 12. Home security system strategy
+
+Use the suite as one layer in a home security system:
+
+1. Router: secure admin password, WPA2/WPA3, no WPS, guest Wi-Fi for IoT.
+2. Accounts: password manager, unique passwords, MFA on critical accounts.
+3. Devices: automatic updates, disk encryption, built-in endpoint protection.
+4. Backups: cloud backup plus one offline backup that is unplugged after use.
+5. Monitoring: Security Suite watches suspicious downloads and shows logs.
+6. Response: quarantine first, delete only after confirmation, restore from a
+   clean backup when needed.
+
+Use the full home book for family-facing strategy:
+
+```text
+book/Home-SOC-Defense-Guide.md
+```
+
+Use the short checklist for setup:
+
+```text
+docs/Home-User-Security-System-Quickstart.md
+```
+
+## 13. Release and GitHub workflow
 
 Before a release:
 
@@ -316,7 +388,7 @@ Release checklist:
 - Compile and JavaScript checks pass.
 - No secrets appear in tracked files.
 
-## 12. Troubleshooting
+## 14. Troubleshooting
 
 Delete button does nothing:
 
@@ -360,7 +432,15 @@ Dashboard looks stale:
 - Use Clear lines only when you want to wipe active lines.
 - Restart the server after backend code changes.
 
-## 13. Operator checklist
+Behavior logs show no firewall data:
+
+- Confirm firewall logging is enabled.
+- Confirm the log path exists.
+- Restart Security Suite.
+- Remember that blocked inbound noise is normal; repeated outbound traffic from
+  an unknown device matters more.
+
+## 15. Operator checklist
 
 Start of session:
 

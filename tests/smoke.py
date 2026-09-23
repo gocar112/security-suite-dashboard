@@ -10,6 +10,8 @@ import json
 import os
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -19,6 +21,7 @@ from securitysuite.config import load_config
 from securitysuite.engine import YaraEngine
 from securitysuite.ioc import extract
 from securitysuite.remediate import Remediator
+from securitysuite.server import serve
 from securitysuite.store import EventStore
 from securitysuite.telemetry import AuthTelemetry
 from securitysuite.watcher import Monitor
@@ -184,6 +187,57 @@ def test_ids_are_stable_across_reload() -> None:
         assert_true(first == second,
                     "id regenerated on reload; triage state would be orphaned")
 
+def request_json(url: str, payload=None) -> tuple[int, dict]:
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(url, data=data)
+    if payload is not None:
+        request.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read().decode("utf-8"))
+
+
+def test_dashboard_http_guards() -> None:
+    with tempfile.TemporaryDirectory(prefix="ss_http_") as raw:
+        tmp = Path(raw)
+        watch = tmp / "watch"
+        watch.mkdir()
+        cfg, engine, store, telemetry, remediator, monitor = make_stack(tmp, watch)
+        cfg.host = "127.0.0.1"
+        cfg.port = 0
+        httpd = serve(cfg, engine, store, telemetry, monitor, remediator=remediator)
+        host, port = httpd.server_address
+        base = "http://" + str(host) + ":" + str(port)
+        try:
+            code, data = request_json(base + "/api/findings?limit=abc")
+            assert_true(code == 200 and "findings" in data,
+                        "bad limit was not safely replaced with the default")
+
+            code, data = request_json(base + "/api/scan", [])
+            assert_true(code == 400 and data.get("error") == "path is required",
+                        "non-object JSON body crashed or bypassed validation")
+
+            store.add({"event_type": "remediation", "action": "delete",
+                       "outcome": "deleted", "path": str(watch / "bad.exe")})
+            code, data = request_json(base + "/api/logs")
+            assert_true(code == 200 and data.get("behavior", {}).get("destructive_actions") == 1,
+                        "behavior logs did not count destructive remediation")
+            assert_true(data.get("server", {}).get("requests"),
+                        "server request log did not record HTTP activity")
+            assert_true("status" in data.get("firewall", {}),
+                        "firewall log status missing")
+
+            store.add({"event_type": "scan", "path": str(watch / "clean.txt")})
+            code, data = request_json(base + "/api/findings/clear", {"confirm": True})
+            assert_true(code == 200 and data.get("cleared"), "confirmed clear failed")
+            remaining = store.events(limit=10, event_type="all")
+            assert_true(all(e.get("event_type") == "remediation" for e in remaining),
+                        "clear left non-audit dashboard events")
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
 
 
 def main() -> int:
@@ -194,6 +248,7 @@ def main() -> int:
     test_overflowed_subscriber_is_notified()
     test_triage_survives_memory_window()
     test_ids_are_stable_across_reload()
+    test_dashboard_http_guards()
     print("CI smoke tests passed")
     return 0
 

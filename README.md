@@ -18,8 +18,11 @@ browser dashboard.
 ## Quick Links
 
 - Operator guide: [book/Security-Suite-Operator-Guide.md](book/Security-Suite-Operator-Guide.md)
+- Home SOC defense book: [book/Home-SOC-Defense-Guide.md](book/Home-SOC-Defense-Guide.md)
+- Home security quickstart: [docs/Home-User-Security-System-Quickstart.md](docs/Home-User-Security-System-Quickstart.md)
 - Detection engineering field guide: [book/Detection-Engineering-in-Practice.pdf](book/Detection-Engineering-in-Practice.pdf)
 - Database summary: [docs/database-summary.md](docs/database-summary.md)
+- ML scanner reference review: [docs/ML-Vulnerability-Scanner-Reference-Review.md](docs/ML-Vulnerability-Scanner-Reference-Review.md)
 - Main dashboard screenshot: [docs/images/dashboard.png](docs/images/dashboard.png)
 
 ## At A Glance
@@ -32,6 +35,7 @@ browser dashboard.
 | Enrich | Uses NVD, OSV, CISA KEV, and optional VirusTotal hash lookups for context. |
 | Triage | Acknowledge, resolve, mark false positive, reopen, and clear dashboard lines with backup. |
 | Remediate | Quarantine, restore, delete, and purge detection targets behind hash checks, path confinement, and an audit trail. |
+| Observe | Shows server requests, detection behavior, remediation outcomes, and local firewall events when OS logging is enabled. |
 
 ## Quick Start
 
@@ -275,6 +279,7 @@ All endpoints are intended for localhost use. The server rejects non-loopback
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | GET | `/api/state` | Current stats, monitor status, engine info, telemetry, config |
+| GET | `/api/logs` | Behavior counters, recent server requests, and local firewall events |
 | GET | `/api/findings` | Filtered findings |
 | POST | `/api/findings/clear` | Back up and clear active dashboard lines |
 | GET | `/api/rules` | Loaded rules and compile errors |
@@ -306,7 +311,10 @@ uploads/                       default watched folder
 web/                           dashboard HTML/CSS/JS
 assets/                        app logo and desktop icon
 book/                          operator and field-guide documentation
+book/Home-SOC-Defense-Guide.md home-user defense strategy book
 docs/images/                   README screenshots
+docs/Home-User-Security-System-Quickstart.md  home security checklist
+docs/ML-Vulnerability-Scanner-Reference-Review.md  external prototype assessment
 docs/database-summary.md       generated local database summary
 data/findings.ndjson           active finding log
 data/triage.json               active triage state
@@ -322,6 +330,8 @@ Use the README for setup and release checks. Use the operator guide for daily
 workflow:
 
 - [Security Suite Operator Guide](book/Security-Suite-Operator-Guide.md)
+- [Home SOC Defense Guide](book/Home-SOC-Defense-Guide.md)
+- [Home User Security System Quickstart](docs/Home-User-Security-System-Quickstart.md)
 - [Detection Engineering In Practice PDF](book/Detection-Engineering-in-Practice.pdf)
 - [Detection Engineering In Practice DOCX](book/Detection-Engineering-in-Practice.docx)
 

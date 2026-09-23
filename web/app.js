@@ -512,6 +512,59 @@ function renderTelemetry(tele) {
     : '<span class="faint">' + esc(tele.detail || "No failed logons in the window.") + '</span>';
 }
 
+async function loadLogs() {
+  try {
+    renderLogs(await api("/api/logs"));
+  } catch (err) {
+    if ($("logs-status")) $("logs-status").textContent = "offline";
+    if ($("server-log")) {
+      $("server-log").innerHTML = '<span class="faint">Log channel unavailable: ' +
+        esc(err.message) + '</span>';
+    }
+  }
+}
+
+function renderLogs(data) {
+  const behavior = data.behavior || {};
+  const firewall = data.firewall || {};
+  const requests = (data.server && data.server.requests) || [];
+  $("logs-status").textContent = firewall.status === "ok"
+    ? "firewall live"
+    : "server live";
+
+  const counters = [
+    ["Events", behavior.events || 0, ""],
+    ["Detections", behavior.detections || 0, "hot"],
+    ["Deletes", behavior.destructive_actions || 0, "danger"],
+    ["Refused", behavior.refused_actions || 0, "warn"],
+    ["Firewall blocks", behavior.firewall_blocks || 0, firewall.status === "ok" ? "warn" : ""],
+  ];
+  $("behavior-grid").innerHTML = counters.map(([label, value, cls]) =>
+    '<div class="behavior-cell ' + cls + '"><b>' + esc(value) + '</b><span>' +
+    esc(label) + '</span></div>'
+  ).join("");
+
+  const firewallRows = firewall.events || [];
+  $("firewall-log").innerHTML = firewallRows.length
+    ? firewallRows.slice(-12).reverse().map((e) =>
+        '<div class="log-row">' +
+          '<span class="log-code ' + esc(e.action) + '">' + esc(e.action) + '</span>' +
+          '<span class="log-main">' + esc((e.src || "-") + " -> " + (e.dst || "-")) + '</span>' +
+          '<span class="meta">' + esc(e.timestamp || "") + '</span>' +
+        '</div>').join("")
+    : '<span class="faint">' + esc(firewall.detail ||
+        "No firewall allow/block lines in the current tail.") + '</span>';
+
+  $("server-log").innerHTML = requests.length
+    ? requests.slice(0, 18).map((r) =>
+        '<div class="log-row">' +
+          '<span class="log-code s' + esc(r.status) + '">' + esc(r.status) + '</span>' +
+          '<span class="log-main">' + esc(r.method + " " + r.path) + '</span>' +
+          '<span class="meta">' + clockOf(r.timestamp) + '</span>' +
+        '</div>').join("")
+    : '<span class="faint">No server requests recorded yet.</span>';
+}
+
 function renderRules(engine) {
   $("rules-pill").textContent = engine.rule_count + " rules";
   if ($("meta-rules")) {
@@ -895,6 +948,7 @@ async function refresh() {
     renderTelemetry(data.telemetry);
     renderRules(data.engine);
     renderSensor(data);
+    loadLogs();
     loadIocs();
     loadRemediation();
     $("sub-title").textContent = data.config.watch_paths.length + " path(s) monitored";
@@ -990,7 +1044,7 @@ function wire() {
       return;
     }
     try {
-      const result = await post("/api/findings/clear", { backup: true });
+      const result = await post("/api/findings/clear", { backup: true, confirm: true });
       clearLocalLines();
       toast("Cleared " + result.events + " line(s)" +
         (result.backup_dir ? " / backup saved" : ""));
