@@ -41,7 +41,10 @@ jobs:
 
       - name: Validate dashboard JavaScript
         shell: pwsh
-        run: node --check web/app.js
+        run: |
+          node --check web/app.js
+          node --check web/briefing.js
+          node tests/frontend.mjs
 
       - name: Run smoke tests
         shell: pwsh

@@ -126,7 +126,7 @@ def main(argv=None) -> int:
         if not args.no_browser:
             try:
                 webbrowser.open(url)
-            except Exception:
+            except (OSError, webbrowser.Error):
                 pass
 
     print("[*] Ctrl-C to stop.\n")

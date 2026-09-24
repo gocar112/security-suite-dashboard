@@ -10,14 +10,13 @@ import queue
 import threading
 import time
 import traceback
-import urllib.error
-import urllib.request
 from collections import Counter, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .ioc import summarise, to_csv
+from .net import HttpError, get_json
 from .risk import RiskRecommender
 from .store import now_iso
 
@@ -47,6 +46,7 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 }
 MAX_BODY = 64 * 1024
+MAX_REJECT_DRAIN = 128 * 1024
 # Cache the VirusTotal key reachability probe; it is a blocking network call
 # on a request path the dashboard polls.
 VT_STATUS_TTL = 120.0
@@ -178,8 +178,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except (TypeError, ValueError):
+            self.close_connection = True
             return {}
         if length <= 0 or length > MAX_BODY:
+            # A small overage can be drained before replying so well-behaved
+            # clients receive a clean validation response. For a large body,
+            # close instead of spending unbounded time or memory on input the
+            # application will never accept.
+            if MAX_BODY < length <= MAX_REJECT_DRAIN:
+                self.rfile.read(length)
+            elif length > MAX_BODY:
+                self.close_connection = True
             return {}
         try:
             payload = json.loads(self.rfile.read(length) or b"{}")
@@ -188,6 +197,23 @@ class Handler(BaseHTTPRequestHandler):
         # A JSON body may legally be a list, string or number, but every caller
         # here indexes it like a mapping.
         return payload if isinstance(payload, dict) else {}
+
+    def _discard_small_body(self) -> None:
+        """Consume a rejected request body when it is safely bounded.
+
+        CSRF rejection happens before JSON parsing. Leaving even a small body
+        unread makes the next HTTP/1.1 request on the same socket look like
+        malformed request syntax, which can surface to clients as a reset.
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            self.close_connection = True
+            return
+        if length > MAX_BODY:
+            self.close_connection = True
+        elif length > 0:
+            self.rfile.read(length)
 
     @staticmethod
     def _int_param(raw, default: int, low: int, high: int) -> int:
@@ -214,7 +240,7 @@ class Handler(BaseHTTPRequestHandler):
             traceback.print_exc()
             try:
                 self._json({"error": "internal error"}, 500)
-            except Exception:
+            except OSError:
                 pass                              # response already began
 
     def _static(self, name: str):
@@ -412,6 +438,7 @@ class Handler(BaseHTTPRequestHandler):
         route = urlparse(self.path).path.rstrip("/") or "/"
         allowed, why = self._csrf_ok()
         if not allowed:
+            self._discard_small_body()
             self._json({"error": why}, 403)
             return
         body = self._body()
@@ -612,17 +639,14 @@ class Handler(BaseHTTPRequestHandler):
             cached = _VT_STATUS_CACHE.get(vt_key)
             if cached and now - cached[0] < VT_STATUS_TTL:
                 return cached[1]
-        request = urllib.request.Request(
-            "https://www.virustotal.com/api/v3/users/me",
-            headers={"x-apikey": vt_key, "Accept": "application/json"},
-        )
         try:
-            with urllib.request.urlopen(request, timeout=2) as response:
-                status = "online" if response.status == 200 else "configured"
-        except urllib.error.HTTPError as exc:
-            status = ("rejected" if exc.code in (401, 403)
-                      else "rate limited" if exc.code == 429 else "configured")
-        except (urllib.error.URLError, TimeoutError, OSError):
+            get_json("https://www.virustotal.com/api/v3/users/me",
+                     headers={"x-apikey": vt_key}, timeout=2)
+            status = "online"
+        except HttpError as exc:
+            status = ("rejected" if exc.status in (401, 403)
+                      else "rate limited" if exc.status == 429 else "configured")
+        except (TimeoutError, OSError):
             status = "offline"
         with _VT_STATUS_LOCK:
             _VT_STATUS_CACHE[vt_key] = (now, status)

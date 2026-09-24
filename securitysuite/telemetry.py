@@ -21,7 +21,8 @@ import json
 import os
 import re
 import shutil
-import subprocess
+# Used only with fixed OS telemetry command arrays.
+import subprocess  # nosec B404
 import sys
 import threading
 import time
@@ -172,7 +173,8 @@ class AuthTelemetry:
                    "--last", str(self.lookback_minutes) + "m",
                    "--predicate", predicate]
         try:
-            proc = subprocess.run(command, capture_output=True, text=True,
+            # Command is fixed and shell=False is the subprocess default.
+            proc = subprocess.run(command, capture_output=True, text=True,  # nosec B603
                                   timeout=SUBPROCESS_TIMEOUT)
         except subprocess.TimeoutExpired:
             return {"status": "error", "source": "macos_unified_log",
@@ -248,7 +250,8 @@ class AuthTelemetry:
                    "--since", "%d min ago" % self.lookback_minutes,
                    "SYSLOG_FACILITY=4", "SYSLOG_FACILITY=10"]
         try:
-            proc = subprocess.run(command, capture_output=True, text=True,
+            # Command is fixed and shell=False is the subprocess default.
+            proc = subprocess.run(command, capture_output=True, text=True,  # nosec B603
                                   timeout=SUBPROCESS_TIMEOUT)
         except subprocess.TimeoutExpired:
             return {"status": "error", "source": "journald",
@@ -377,7 +380,8 @@ class AuthTelemetry:
                 try:
                     import win32evtlog  # type: ignore
                     win32evtlog.CloseEventLog(handle)
-                except Exception:
+                # Best-effort cleanup of an event-log handle.
+                except Exception:  # nosec B110
                     pass
 
     @staticmethod

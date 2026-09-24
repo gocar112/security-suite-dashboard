@@ -19,6 +19,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 
 USER_AGENT = "security-suite/1.0 (+https://github.com/gocar112/security-suite-dashboard)"
 
@@ -74,20 +75,43 @@ class HttpError(Exception):
         self.detail = detail
 
 
+def _require_https(url: str) -> None:
+    """Reject local files, cleartext HTTP, and malformed outbound targets."""
+    parsed = urlsplit(url)
+    if (parsed.scheme != "https" or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None):
+        raise ValueError("outbound URL must be an absolute HTTPS URL")
+
+
+class _HttpsOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Keep a trusted HTTPS request from being redirected to another scheme."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _require_https(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_HTTPS_OPENER = urllib.request.build_opener(
+    _HttpsOnlyRedirectHandler(), urllib.request.HTTPSHandler(context=ssl_context())
+)
+
+
 def get_json(url: str, headers: dict | None = None, timeout: float = 30.0) -> dict:
     """GET a URL and parse JSON. Raises HttpError with the status on failure."""
+    _require_https(url)
     request = urllib.request.Request(
         url,
         headers={"Accept": "application/json", "User-Agent": USER_AGENT, **(headers or {})},
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout, context=ssl_context()) as response:
+        # HTTPS and redirect schemes are enforced before the opener is used.
+        with _HTTPS_OPENER.open(request, timeout=timeout) as response:  # nosec B310
             return json.loads(response.read().decode("utf-8", "replace"))
     except urllib.error.HTTPError as exc:
         body = ""
         try:
             body = exc.read().decode("utf-8", "replace")[:300]
-        except Exception:
+        except OSError:
             pass
         raise HttpError(exc.code, body) from exc
     except urllib.error.URLError as exc:
@@ -97,6 +121,7 @@ def get_json(url: str, headers: dict | None = None, timeout: float = 30.0) -> di
 def post_json(url: str, payload: dict, headers: dict | None = None,
               timeout: float = 30.0) -> dict:
     """POST a JSON body and parse the JSON response."""
+    _require_https(url)
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         url,
@@ -110,13 +135,14 @@ def post_json(url: str, payload: dict, headers: dict | None = None,
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout, context=ssl_context()) as response:
+        # HTTPS and redirect schemes are enforced before the opener is used.
+        with _HTTPS_OPENER.open(request, timeout=timeout) as response:  # nosec B310
             return json.loads(response.read().decode("utf-8", "replace"))
     except urllib.error.HTTPError as exc:
         detail = ""
         try:
             detail = exc.read().decode("utf-8", "replace")[:300]
-        except Exception:
+        except OSError:
             pass
         raise HttpError(exc.code, detail) from exc
     except urllib.error.URLError as exc:
