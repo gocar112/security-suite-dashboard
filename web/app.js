@@ -565,6 +565,94 @@ function renderLogs(data) {
     : '<span class="faint">No server requests recorded yet.</span>';
 }
 
+/* ----------------------------------------------------------- risk model */
+async function loadModelStatus() {
+  try {
+    const model = await api("/api/model");
+    $("model-status").textContent = model.mode === "deterministic"
+      ? "explainable baseline" : model.mode;
+    $("model-status").title = model.score_meaning || "";
+  } catch (_) {
+    $("model-status").textContent = "offline";
+  }
+}
+
+function modelContextHtml(context) {
+  const rows = [];
+  const nvd = context.nvd || {};
+  const nvdRecord = nvd.record || {};
+  if (nvd.status !== "not_requested") {
+    rows.push(["NVD", nvd.status,
+      nvdRecord.error || [nvdRecord.id, nvdRecord.cvss_severity,
+        nvdRecord.score, nvdRecord.kev ? "CISA KEV" : ""].filter(Boolean).join(" / ")]);
+  }
+  const osv = context.osv || {};
+  if (osv.status !== "not_requested") {
+    const osvResult = osv.result || {};
+    rows.push(["OSV", osv.status, osvResult.error ||
+      String(osvResult.count || 0) + " matching vulnerabilities"]);
+  }
+  const vt = context.virustotal || {};
+  if (vt.status !== "not_requested") {
+    const vtResult = vt.result || {};
+    rows.push(["VirusTotal", vt.status, vtResult.error || vtResult.detection_ratio ||
+      vtResult.threat_label || "hash report found"]);
+  }
+  if (!rows.length) return "";
+  return '<div class="risk-context">' + rows.map(([source, status, detail]) =>
+    '<div><b>' + esc(source) + '</b><span class="context-state ' +
+      esc(status) + '">' + esc(status) + '</span><span>' + esc(detail || "") +
+      '</span></div>').join("") + '</div>';
+}
+
+function renderRisk(result) {
+  const assessment = result.assessment || {};
+  const factors = assessment.factors || [];
+  const recommendations = assessment.recommendations || [];
+  $("risk-result").innerHTML =
+    '<div class="risk-score"><strong>' + esc(assessment.risk_score || 0) +
+      '</strong><span>priority / 100</span><i class="sev sev-' +
+      esc(assessment.severity || "info") + '">' + esc(assessment.severity || "info") +
+      '</i></div>' +
+    '<dl class="risk-summary"><dt>Exploitability</dt><dd>' +
+      esc(assessment.exploitability_estimate ?? "-") + '</dd>' +
+      '<dt>Evidence quality</dt><dd>' + esc(assessment.evidence_quality || "-") + '</dd>' +
+      '<dt>Device</dt><dd>' + esc(assessment.affected_device || "-") + '</dd></dl>' +
+    '<div class="risk-factors">' + factors.map((factor) =>
+      '<span>' + esc(factor) + '</span>').join("") + '</div>' +
+    '<ol class="risk-actions">' + recommendations.map((step) =>
+      '<li>' + esc(step) + '</li>').join("") + '</ol>' +
+    modelContextHtml(result.context || {}) +
+    '<div class="risk-caveat">Priority estimate only. Confirm vulnerabilities with scanner evidence.</div>';
+}
+
+async function assessRisk(event) {
+  event.preventDefault();
+  const button = $("risk-submit");
+  button.disabled = true;
+  button.textContent = "Assessing...";
+  const payload = {
+    vulnerability_type: $("risk-type").value.trim(),
+    impact: $("risk-impact").value.trim(),
+    affected_device: $("risk-device").value,
+    exposure: $("risk-exposure").value,
+    cvss: $("risk-cvss").value,
+    cve: $("risk-cve").value.trim(),
+    purl: $("risk-purl").value.trim(),
+    sha256: $("risk-sha").value.trim(),
+    auth_failures: $("risk-auth").value,
+    known_exploited: $("risk-kev").checked,
+  };
+  try {
+    renderRisk(await post("/api/model/predict", payload));
+  } catch (err) {
+    $("risk-result").innerHTML = '<span class="risk-error">' + esc(err.message) + '</span>';
+  } finally {
+    button.disabled = false;
+    button.textContent = "Assess risk";
+  }
+}
+
 function renderRules(engine) {
   $("rules-pill").textContent = engine.rule_count + " rules";
   if ($("meta-rules")) {
@@ -1084,6 +1172,10 @@ function wire() {
     });
   }
 
+  if ($("risk-form")) {
+    $("risk-form").addEventListener("submit", assessRisk);
+  }
+
   $("btn-scan").addEventListener("click", async () => {
     const path = $("scan-path").value.trim();
     if (!path) { toast("Enter a file or folder path", true); return; }
@@ -1177,5 +1269,6 @@ syncControls();
 refresh();
 loadFindings();
 loadIntel();
+loadModelStatus();
 connectStream();
 setInterval(refresh, 15000);

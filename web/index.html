@@ -87,6 +87,23 @@
           <div class="toolbar"><label class="search-box"><span>⌕</span><input type="search" id="q" placeholder="Search file, rule, hash, account..."></label><select id="f-sev"><option value="all">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="info">Info</option></select><select id="f-status"><option value="all">All statuses</option><option value="new">New</option><option value="acknowledged">Acknowledged</option><option value="resolved">Resolved</option><option value="false_positive">False positive</option></select><select id="f-type"><option value="yara_match">Detections</option><option value="all">All events</option><option value="scan">Clean scans</option><option value="error">Errors</option></select><button class="danger-btn clear-lines-btn" id="btn-clear-lines" title="Back up and clear active findings, feed, and triage lines" aria-label="Clear dashboard lines">Clear lines</button></div>
           <div class="table-wrap"><table><thead><tr><th>Severity</th><th>Time</th><th>File</th><th>Rules</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table><div class="empty" id="empty"><span class="empty-orbit">⊙</span><b>No signals in the room</b><span>Drop a file into the watched folder or run an on-demand scan.</span></div></div>
         </div>
+        <div class="panel risk-panel">
+          <div class="panel-head"><div><div class="section-kicker">12 / Prioritize</div><h2>Risk recommendation</h2></div><span class="tag" id="model-status">checking</span></div>
+          <form class="risk-form" id="risk-form">
+            <label><span>Vulnerability type</span><input id="risk-type" name="vulnerability_type" maxlength="120" placeholder="e.g. SQL injection" required></label>
+            <label><span>Affected device</span><select id="risk-device" name="affected_device"><option>Workstation</option><option>Server</option><option>Router</option><option>Web application</option><option>IoT device</option><option>Mobile device</option><option>Unknown</option></select></label>
+            <label><span>Exposure</span><select id="risk-exposure" name="exposure"><option value="local">Local only</option><option value="lan">Home LAN</option><option value="internet">Internet exposed</option></select></label>
+            <label><span>CVSS</span><input id="risk-cvss" name="cvss" type="number" min="0" max="10" step="0.1" placeholder="0-10"></label>
+            <label class="risk-impact"><span>Impact / evidence</span><textarea id="risk-impact" name="impact" maxlength="1200" placeholder="Describe observed impact and scanner evidence" required></textarea></label>
+            <label><span>CVE</span><input id="risk-cve" name="cve" maxlength="24" placeholder="CVE-2024-1234"></label>
+            <label><span>Package URL</span><input id="risk-purl" name="purl" maxlength="300" placeholder="pkg:pypi/package@version"></label>
+            <label><span>SHA-256</span><input id="risk-sha" name="sha256" maxlength="64" placeholder="64 hex characters"></label>
+            <label><span>Auth failures</span><input id="risk-auth" name="auth_failures" type="number" min="0" max="10000" value="0"></label>
+            <label class="risk-check"><input id="risk-kev" name="known_exploited" type="checkbox"><span>Known exploited</span></label>
+            <button class="action-btn risk-submit" id="risk-submit" type="submit">Assess risk</button>
+          </form>
+          <div class="risk-result" id="risk-result"><span class="faint">Enter verified evidence to build an explainable priority estimate.</span></div>
+        </div>
         <div class="panel ioc-panel">
           <div class="panel-head"><div><div class="section-kicker">10 / Pivot</div><h2>Extracted indicators</h2></div><div class="ioc-actions"><select id="ioc-type"><option value="all">All types</option><option value="url">URLs</option><option value="domain">Domains</option><option value="ipv4">IPv4</option><option value="onion">Onion</option><option value="btc">Bitcoin</option><option value="xmr">Monero</option><option value="eth">Ethereum</option><option value="email">Email</option><option value="cve">CVE</option><option value="registry">Registry</option><option value="filepath">File paths</option><option value="sha256">SHA-256</option><option value="md5">MD5</option></select><label class="ioc-toggle"><input type="checkbox" id="ioc-external"> external only</label><button class="action-btn" id="ioc-export">Export CSV</button></div></div>
           <div class="body">

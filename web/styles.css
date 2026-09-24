@@ -121,6 +121,47 @@ main { padding: 26px 30px 48px; }
 .log-code.allow, .log-code.s200 { color: var(--ok); }
 .log-code.s302, .log-code.s304 { color: var(--blue); }
 
+.risk-panel { margin-top: 12px; }
+.risk-form { display: grid; grid-template-columns: 1.4fr 1fr 1fr .65fr; gap: 9px;
+  padding: 13px 15px; border-bottom: 1px solid var(--line); }
+.risk-form label { display: flex; min-width: 0; flex-direction: column; gap: 5px;
+  color: var(--text-faint); font: 9px var(--mono); text-transform: uppercase;
+  letter-spacing: .06em; }
+.risk-form input, .risk-form select, .risk-form textarea { width: 100%; min-width: 0;
+  color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
+  padding: 7px 8px; outline: 0; font: 11px/1.4 var(--sans); letter-spacing: 0; }
+.risk-form input:focus, .risk-form select:focus, .risk-form textarea:focus {
+  border-color: var(--teal-dim); box-shadow: 0 0 0 1px rgba(71,224,192,.12); }
+.risk-form textarea { min-height: 68px; resize: vertical; }
+.risk-impact { grid-column: span 2; grid-row: span 2; }
+.risk-check { align-self: end; flex-direction: row !important; align-items: center;
+  min-height: 32px; padding: 0 4px; }
+.risk-check input { width: auto; }
+.risk-submit { align-self: end; min-height: 32px; }
+.risk-result { min-height: 64px; padding: 13px 15px; color: var(--text-dim); }
+.risk-score { display: grid; grid-template-columns: 62px 1fr auto; align-items: center;
+  gap: 9px; margin-bottom: 10px; }
+.risk-score strong { color: var(--teal); font: 34px/1 var(--mono); font-weight: 500; }
+.risk-score > span { color: var(--text-faint); font: 9px var(--mono); text-transform: uppercase; }
+.risk-summary { display: grid; grid-template-columns: max-content 1fr max-content 1fr max-content 1fr;
+  gap: 5px 9px; margin: 0 0 10px; font-size: 11px; }
+.risk-summary dt { color: var(--text-faint); }
+.risk-summary dd { margin: 0; color: var(--text); }
+.risk-factors { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.risk-factors span { padding: 3px 6px; color: var(--blue); border: 1px solid rgba(109,183,255,.3);
+  background: rgba(109,183,255,.06); font: 9px var(--mono); }
+.risk-actions { margin: 0; padding-left: 18px; columns: 2; column-gap: 30px; }
+.risk-actions li { break-inside: avoid; margin: 0 0 6px; font-size: 11px; line-height: 1.45; }
+.risk-context { margin-top: 11px; border-top: 1px solid var(--line-soft); }
+.risk-context > div { display: grid; grid-template-columns: 82px 70px 1fr; gap: 8px;
+  padding: 5px 0; border-bottom: 1px solid var(--line-soft); font: 10px var(--mono); }
+.context-state { color: var(--text-faint); text-transform: uppercase; }
+.context-state.ok { color: var(--ok); }
+.context-state.error { color: var(--coral); }
+.context-state.disabled { color: var(--amber); }
+.risk-caveat { margin-top: 9px; color: var(--text-faint); font: 9px var(--mono); }
+.risk-error { color: var(--coral); font: 11px var(--mono); }
+
 .footer { display: flex; justify-content: space-between; gap: 12px; padding: 0 30px 22px; color: var(--text-faint); font: 9px var(--mono); }.footer span:last-child { color: var(--teal-dim); }
 body.focus-mode .source-strip, body.focus-mode .lower-panels { opacity: .22; transition: opacity .2s ease; }
 body.focus-mode .findings-panel { box-shadow: 0 0 0 1px rgba(71, 224, 192, .2), 0 0 42px rgba(71, 224, 192, .08); }
@@ -135,8 +176,8 @@ body.focus-mode .findings-panel { box-shadow: 0 0 0 1px rgba(71, 224, 192, .2), 
 ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #21425a; } ::-webkit-scrollbar-thumb:hover { background: #2d617b; }
 
 @media (max-width: 1180px) { .mission-grid { grid-template-columns: 1fr 300px; }.mission-copy { grid-row: span 2; }.source-grid { grid-template-columns: repeat(3, 1fr); }.kpi-grid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 860px) { .topbar { padding: 13px 18px; flex-wrap: wrap; gap: 10px; }.topbar-separator { display: none; }.status-cluster { order: 3; width: 100%; overflow: auto; }.top-actions { margin-left: auto; }.mission-grid { grid-template-columns: 1fr; }.mission-copy { grid-row: auto; padding-right: 0; }.dial-panel { max-width: 420px; }.control-rack { min-height: 260px; }.workspace-grid { grid-template-columns: 1fr; }.sidebar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }.sidebar .panel + .panel { margin-top: 0; }.scan-panel { grid-column: 1 / -1; }.footer, main { padding-left: 18px; padding-right: 18px; } }
-@media (max-width: 560px) { .brand-sub { display: none; }.top-actions .control-btn:first-of-type { display: none; }.mission-copy h1 { font-size: 43px; }.source-grid, .kpi-grid, .sidebar, .lower-panels { grid-template-columns: 1fr; }.source-card { min-height: 53px; }.kpi-grid { gap: 7px; }.metric-card { min-height: 92px; }.metric-card strong { margin-top: 6px; }.footer { flex-direction: column; padding-bottom: 15px; }.toolbar select { flex: 1; }.table-wrap { max-height: 490px; } }
+@media (max-width: 860px) { .topbar { padding: 13px 18px; flex-wrap: wrap; gap: 10px; }.topbar-separator { display: none; }.status-cluster { order: 3; width: 100%; overflow: auto; }.top-actions { margin-left: auto; }.mission-grid { grid-template-columns: 1fr; }.mission-copy { grid-row: auto; padding-right: 0; }.dial-panel { max-width: 420px; }.control-rack { min-height: 260px; }.workspace-grid { grid-template-columns: 1fr; }.sidebar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }.sidebar .panel + .panel { margin-top: 0; }.scan-panel { grid-column: 1 / -1; }.risk-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }.footer, main { padding-left: 18px; padding-right: 18px; } }
+@media (max-width: 560px) { .brand-sub { display: none; }.top-actions .control-btn:first-of-type { display: none; }.mission-copy h1 { font-size: 43px; }.source-grid, .kpi-grid, .sidebar, .lower-panels, .risk-form { grid-template-columns: 1fr; }.risk-impact { grid-column: auto; grid-row: auto; }.risk-summary { grid-template-columns: max-content 1fr; }.risk-actions { columns: 1; }.source-card { min-height: 53px; }.kpi-grid { gap: 7px; }.metric-card { min-height: 92px; }.metric-card strong { margin-top: 6px; }.footer { flex-direction: column; padding-bottom: 15px; }.toolbar select { flex: 1; }.table-wrap { max-height: 490px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 
 /* ------------------------------------------------------------ IOC panel */

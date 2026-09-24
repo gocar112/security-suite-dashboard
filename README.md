@@ -91,13 +91,13 @@ whether auto-remediation is armed.
 ### 2. Drop A Test File
 
 ```powershell
-copy samples\README_RESTORE.txt uploads\
+copy samples\README_RESTORE.txt SecurityDrop\
 ```
 
 On macOS or Linux:
 
 ```bash
-cp samples/README_RESTORE.txt uploads/
+cp samples/README_RESTORE.txt SecurityDrop/
 ```
 
 The finding should appear in the dashboard within a few seconds.
@@ -127,7 +127,17 @@ The indicator panel aggregates observables across all detected files.
 
 Use **Export CSV** when you want to hand the observable set to a SIEM or ticket.
 
-### 5. Remediate Carefully
+### 5. Prioritize A Vulnerability
+
+Use **Risk recommendation** to score verified vulnerability evidence. The form
+accepts a vulnerability type, impact, affected device, exposure, CVSS, and
+optional CVE, package URL, or SHA-256. Identifier fields request NVD, OSV, or
+VirusTotal context when the matching adapter is available.
+
+The score is an explainable deterministic estimate. It is not proof that a
+vulnerability exists and is not presented as a machine-learning probability.
+
+### 6. Remediate Carefully
 
 ![Remediation panel](docs/images/remediation-panel.png)
 
@@ -258,7 +268,7 @@ them, create `config.json` in the project root.
 
 ```json
 {
-  "watch_paths": ["uploads"],
+  "watch_paths": ["SecurityDrop"],
   "recursive": true,
   "poll_interval": 2.0,
   "settle_seconds": 1.0,
@@ -266,10 +276,17 @@ them, create `config.json` in the project root.
   "lookback_minutes": 5,
   "host": "127.0.0.1",
   "port": 8787,
-  "auto_remediate": false,
+  "auto_remediate": true,
+  "auto_remediate_severity": "critical",
   "auto_remediate_action": "quarantine"
 }
 ```
+
+Watch `Downloads` only if you understand that normal installers may trigger.
+The default `SecurityDrop` folder is safer: copy only suspicious files into it.
+Automatic remediation is armed for critical detections and uses quarantine;
+permanent deletion remains a manual, confirmed action. Use **Clear lines** after
+a test run to reset the active room while retaining the remediation audit.
 
 ## API Snapshot
 
@@ -280,6 +297,8 @@ All endpoints are intended for localhost use. The server rejects non-loopback
 | --- | --- | --- |
 | GET | `/api/state` | Current stats, monitor status, engine info, telemetry, config |
 | GET | `/api/logs` | Behavior counters, recent server requests, and local firewall events |
+| GET | `/api/model` | Risk model mode, fields, and score meaning |
+| POST | `/api/model/predict` | Explainable risk recommendation with optional NVD/OSV/VT context |
 | GET | `/api/findings` | Filtered findings |
 | POST | `/api/findings/clear` | Back up and clear active dashboard lines |
 | GET | `/api/rules` | Loaded rules and compile errors |
@@ -307,7 +326,8 @@ securitysuite/                 scanner, store, server, APIs
 rules/                         YARA rules
 rules/generated/               generated vulnerable-component rules
 samples/                       harmless test files
-uploads/                       default watched folder
+uploads/                       optional legacy watched folder
+SecurityDrop/                  default suspicious-file drop zone
 web/                           dashboard HTML/CSS/JS
 assets/                        app logo and desktop icon
 book/                          operator and field-guide documentation

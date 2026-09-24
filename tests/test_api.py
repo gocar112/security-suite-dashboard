@@ -95,7 +95,7 @@ def main() -> int:
 
         # Core reads still work.
         for path in ("/", "/app.js", "/styles.css", "/api/state",
-                     "/api/rules", "/api/findings", "/api/iocs"):
+                     "/api/rules", "/api/findings", "/api/iocs", "/api/model"):
             status, _ = get(base, path)
             assert_true(status == 200, "%s returned %s" % (path, status))
 

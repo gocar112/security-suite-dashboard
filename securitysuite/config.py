@@ -39,7 +39,7 @@ _load_local_env()
 @dataclass
 class Config:
     # --- monitoring ---
-    watch_paths: list = field(default_factory=lambda: [str(ROOT / "uploads")])
+    watch_paths: list = field(default_factory=lambda: [str(ROOT / "SecurityDrop")])
     recursive: bool = True
     poll_interval: float = 2.0
     # A file must stop changing for this long before it is scanned, so we never
@@ -84,10 +84,9 @@ class Config:
     remediation_file: str = str(ROOT / "data" / "remediation.json")
     guidance_cache_dir: str = str(ROOT / "data" / "guidance")
     remediation_roots: list = field(default_factory=list)
-    # Automatic remediation is opt-in and defaults to the non-destructive
-    # action. An unattended delete is a different risk class from one an
-    # operator chose.
-    auto_remediate: bool = False
+    # This deployment automatically quarantines critical detections from the
+    # dedicated SecurityDrop folder. Delete remains a manual action.
+    auto_remediate: bool = True
     auto_remediate_severity: str = "critical"
     auto_remediate_action: str = "quarantine"
 

@@ -288,7 +288,7 @@ Recommended home setup:
 - Watch `Downloads` only if you understand that normal installers may trigger.
 - A safer pattern is to create a dedicated folder named `SecurityDrop` and copy
   suspicious files there.
-- Keep `auto_remediate` off.
+- Keep `auto_remediate` on for critical findings and set its action to `quarantine`.
 - Use `quarantine` before `delete`.
 - Use Clear lines after a test run to reset the room.
 
@@ -296,11 +296,12 @@ Example `config.json`:
 
 ```json
 {
-  "watch_paths": ["uploads"],
+  "watch_paths": ["SecurityDrop"],
   "recursive": true,
   "host": "127.0.0.1",
   "port": 8787,
-  "auto_remediate": false,
+  "auto_remediate": true,
+  "auto_remediate_severity": "critical",
   "auto_remediate_action": "quarantine"
 }
 ```
@@ -308,7 +309,7 @@ Example `config.json`:
 Run an on-demand scan:
 
 ```powershell
-python run.py --scan .\uploads
+python run.py --scan .\SecurityDrop
 ```
 
 Use the dashboard for:

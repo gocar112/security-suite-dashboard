@@ -21,6 +21,7 @@ from securitysuite.config import load_config
 from securitysuite.engine import YaraEngine
 from securitysuite.ioc import extract
 from securitysuite.remediate import Remediator
+from securitysuite.risk import RiskRecommender
 from securitysuite.server import serve
 from securitysuite.store import EventStore
 from securitysuite.telemetry import AuthTelemetry
@@ -71,6 +72,24 @@ def test_ioc_extraction() -> None:
                 "URLs must be defanged")
 
 
+def test_risk_recommender_is_explainable() -> None:
+    result = RiskRecommender.assess({
+        "vulnerability_type": "SQL injection",
+        "impact": "Internet-facing API with sensitive data exposure",
+        "affected_device": "Web application",
+        "exposure": "internet",
+        "cvss": 9.1,
+        "known_exploited": True,
+    })
+    assessment = result["assessment"]
+    assert_true(assessment["severity"] == "critical",
+                "high-evidence internet exposure was under-prioritized")
+    assert_true(assessment["factors"] and assessment["recommendations"],
+                "risk result did not explain its factors and actions")
+    assert_true(result["model"]["trained_model"] is False,
+                "deterministic baseline was mislabeled as a trained model")
+
+
 def test_remediation_self_protection_and_delete() -> None:
     with tempfile.TemporaryDirectory(prefix="ss_ci_") as raw:
         tmp = Path(raw)
@@ -103,6 +122,31 @@ def test_remediation_self_protection_and_delete() -> None:
         refused = project_remediator.act(readme_event["id"], "delete", confirm=True, allow_directory=True)
         assert_true(not refused["ok"] and refused["refused"] == "suite-owned path", "project files became remediable")
         assert_true((ROOT / "README.md").exists(), "self-protection failed; README was deleted")
+
+
+def test_auto_remediation_quarantines_critical() -> None:
+    with tempfile.TemporaryDirectory(prefix="ss_auto_") as raw:
+        tmp = Path(raw)
+        watch = tmp / "SecurityDrop"
+        watch.mkdir()
+        cfg, _, store, _, remediator, monitor = make_stack(tmp, watch)
+        cfg.auto_remediate = True
+        cfg.auto_remediate_severity = "critical"
+        cfg.auto_remediate_action = "quarantine"
+        target = watch / "ransom-note.txt"
+        target.write_text(
+            "Your files have been encrypted. Pay bitcoin at "
+            "http://abcdefghijklmnop.onion for the decryption key.\n",
+            encoding="utf-8",
+        )
+        event = monitor.scan_and_record(str(target), "ci-auto")
+        assert_true(event.get("severity") == "critical", "auto test did not create a critical finding")
+        assert_true(not target.exists(), "critical target remained in SecurityDrop")
+        assert_true(remediator.status()["quarantined"] == 1,
+                    "critical target was not quarantined automatically")
+        audit = store.events(limit=10, event_type="remediation")
+        assert_true(any(item.get("trigger") == "auto" for item in audit),
+                    "automatic quarantine did not create an audit record")
 
 
 def test_clear_preserves_audit_trail_beyond_memory_window() -> None:
@@ -229,6 +273,24 @@ def test_dashboard_http_guards() -> None:
             assert_true("status" in data.get("firewall", {}),
                         "firewall log status missing")
 
+            code, data = request_json(base + "/api/model/predict", {
+                "vulnerability_type": "Weak authentication",
+                "impact": "Credential theft and account takeover",
+                "affected_device": "Router",
+                "exposure": "internet",
+                "auth_failures": 12,
+                "cve": "CVE-2024-1234",
+                "purl": "pkg:pypi/example@1.0",
+                "sha256": "a" * 64,
+            })
+            assert_true(code == 200 and data.get("assessment", {}).get("risk_score", 0) >= 40,
+                        "risk API did not return a prioritized assessment")
+            assert_true(data.get("model", {}).get("mode") == "deterministic",
+                        "risk API did not disclose its model mode")
+            assert_true(all(data.get("context", {}).get(name, {}).get("status") == "disabled"
+                            for name in ("nvd", "osv", "virustotal")),
+                        "unconfigured intelligence adapters were not gated")
+
             store.add({"event_type": "scan", "path": str(watch / "clean.txt")})
             code, data = request_json(base + "/api/findings/clear", {"confirm": True})
             assert_true(code == 200 and data.get("cleared"), "confirmed clear failed")
@@ -243,7 +305,9 @@ def test_dashboard_http_guards() -> None:
 def main() -> int:
     test_ruleset()
     test_ioc_extraction()
+    test_risk_recommender_is_explainable()
     test_remediation_self_protection_and_delete()
+    test_auto_remediation_quarantines_critical()
     test_clear_preserves_audit_trail_beyond_memory_window()
     test_overflowed_subscriber_is_notified()
     test_triage_survives_memory_window()

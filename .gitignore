@@ -15,6 +15,10 @@ quarantine/*
 uploads/*
 !uploads/.gitkeep
 
+# Safer home-user drop zone: only suspicious files should be copied here
+SecurityDrop/*
+!SecurityDrop/.gitkeep
+
 # Python
 __pycache__/
 *.py[cod]

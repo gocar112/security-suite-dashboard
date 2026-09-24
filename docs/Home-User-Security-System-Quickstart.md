@@ -52,6 +52,9 @@ Use it this way:
 - Open detections before acting.
 - Prefer Quarantine.
 - Use Delete only for confirmed malicious or disposable files.
+- Copy suspicious files into `SecurityDrop`; watch `Downloads` only when you
+  accept that normal installers may trigger detections.
+- Keep automatic remediation limited to critical findings and quarantine.
 - Use Clear lines after a test session.
 
 ## Enable firewall logs

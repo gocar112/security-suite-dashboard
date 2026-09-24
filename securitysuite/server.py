@@ -18,6 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .ioc import summarise, to_csv
+from .risk import RiskRecommender
 from .store import now_iso
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -56,6 +57,7 @@ FIREWALL_LOGS = (
     ("ufw", Path("/var/log/ufw.log")),
     ("kernel", Path("/var/log/kern.log")),
 )
+RISK_MODEL = RiskRecommender()
 
 INTEL_SOURCES = (
     ("vuls", "https://github.com/future-architect/vuls", "bridge"),
@@ -283,6 +285,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self.ctx.telemetry.recent(force=params.get("force") == "1"))
         elif route == "/api/logs":
             self._json(self._logs())
+        elif route == "/api/model":
+            self._json(RISK_MODEL.schema())
         elif route == "/api/intel":
             self._json(self._intel())
         elif route == "/api/iocs":
@@ -408,7 +412,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         body = self._body()
 
-        if route == "/api/scan":
+        if route == "/api/model/predict":
+            try:
+                result = RISK_MODEL.assess(body)
+            except ValueError as exc:
+                self._json({"error": str(exc)}, 400)
+                return
+            context = self._model_context(result["input"])
+            nvd_record = (context.get("nvd") or {}).get("record") or {}
+            if nvd_record.get("kev") and not result["input"]["known_exploited"]:
+                enriched = dict(body)
+                enriched["known_exploited"] = True
+                result = RISK_MODEL.assess(enriched)
+            result["context"] = context
+            self._json(result)
+        elif route == "/api/scan":
             target = str(body.get("path", "")).strip()
             if not target:
                 self._json({"error": "path is required"}, 400)
@@ -538,6 +556,45 @@ class Handler(BaseHTTPRequestHandler):
         if self.ctx.nvd is None:
             return {"source": "nvd", "status": "disabled"}
         return self.ctx.nvd.status()
+
+    def _model_context(self, data: dict) -> dict:
+        """Optional authoritative lookups for identifiers supplied in the form."""
+        context = {
+            "nvd": {"status": "not_requested"},
+            "osv": {"status": "not_requested"},
+            "virustotal": {"status": "not_requested"},
+        }
+        cve = data.get("cve", "")
+        if cve:
+            if self.ctx.nvd is None:
+                context["nvd"] = {"status": "disabled"}
+            else:
+                record = self.ctx.nvd.fetch_cve(cve)
+                context["nvd"] = {
+                    "status": "error" if record.get("error") else "ok",
+                    "record": record,
+                }
+        purl = data.get("purl", "")
+        if purl:
+            if self.ctx.osv is None:
+                context["osv"] = {"status": "disabled"}
+            else:
+                result = self.ctx.osv.query({"purl": purl})
+                context["osv"] = {
+                    "status": "error" if result.get("error") else "ok",
+                    "result": result,
+                }
+        digest = data.get("sha256", "")
+        if digest:
+            if self.ctx.vt is None or not self.ctx.vt.configured:
+                context["virustotal"] = {"status": "disabled"}
+            else:
+                result = self.ctx.vt.lookup_hash(digest)
+                context["virustotal"] = {
+                    "status": "error" if result.get("error") else "ok",
+                    "result": result,
+                }
+        return context
 
     def _vt_key_status(self, vt_key: str) -> str:
         """Reachability of the configured VirusTotal key, cached.
