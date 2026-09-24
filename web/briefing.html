@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101316">
+<title>Testing System / Read-only Briefing</title>
+<link rel="stylesheet" href="/briefing.css">
+<link rel="icon" href="/favicon.ico">
+</head>
+<body>
+<main class="briefing-shell">
+  <header class="briefing-header">
+    <a class="brand" href="/" aria-label="Open Testing System control room"><img src="/assets/securitysuite.png" alt=""><span>Testing System</span></a>
+    <div class="header-copy"><span class="eyebrow">Read-only security briefing</span><strong id="updated">Loading local status</strong></div>
+    <a class="console-link" href="/">Open control room</a>
+  </header>
+
+  <section class="intro" aria-labelledby="briefing-title">
+    <div><p class="eyebrow">Local defensive visibility</p><h1 id="briefing-title">Security status,<br>without control access.</h1><p class="intro-copy">A safe observer view of the local sensor, recent detections, and configured intelligence sources. This page only reads dashboard data.</p></div>
+    <div class="read-only-mark"><span>READ ONLY</span><small>no scans, remediation, or configuration changes</small></div>
+  </section>
+
+  <section class="metric-grid" aria-label="Security summary">
+    <article class="metric"><span>Sensor</span><strong id="sensor-state">Checking</strong><small id="sensor-detail">Local monitor status</small></article>
+    <article class="metric"><span>Files scanned</span><strong id="files-scanned">0</strong><small id="files-detail">Current session</small></article>
+    <article class="metric metric-alert"><span>Open alerts</span><strong id="open-alerts">0</strong><small id="alerts-detail">Awaiting triage</small></article>
+    <article class="metric"><span>Configured sources</span><strong id="sources-count">0</strong><small id="sources-detail">Context adapters</small></article>
+  </section>
+
+  <section class="briefing-grid">
+    <article class="surface detections"><div class="surface-head"><div><p class="eyebrow">Recent activity</p><h2>Detections</h2></div><span class="status-pill" id="detection-status">Loading</span></div><div class="table-wrap"><table><thead><tr><th>Severity</th><th>Observed</th><th>Rule matches</th><th>State</th></tr></thead><tbody id="finding-rows"></tbody></table></div><p class="empty" id="findings-empty">No detections in the current record.</p></article>
+    <article class="surface watch"><div class="surface-head"><div><p class="eyebrow">Sensor scope</p><h2>What is watched</h2></div></div><dl class="details"><div><dt>Monitor</dt><dd id="watch-monitor">Checking</dd></div><div><dt>Watch path</dt><dd id="watch-path">Checking</dd></div><div><dt>Rule set</dt><dd id="watch-rules">Checking</dd></div><div><dt>Firewall log</dt><dd id="firewall-state">Checking</dd></div></dl></article>
+    <article class="surface sources"><div class="surface-head"><div><p class="eyebrow">Context</p><h2>Intelligence sources</h2></div></div><div class="source-list" id="source-list"></div></article>
+    <article class="surface posture"><div class="surface-head"><div><p class="eyebrow">Containment audit</p><h2>Guardrails</h2></div></div><div class="guardrail"><span>Destructive actions</span><strong id="destructive-actions">0</strong></div><div class="guardrail"><span>Firewall blocks</span><strong id="firewall-blocks">0</strong></div><p class="surface-note">This view intentionally has no action buttons. Open the control room only when an authorized operator needs to investigate or respond.</p></article>
+  </section>
+  <footer>Testing System is a local testing and defense tool. Status shown here is descriptive, not a guarantee of safety.</footer>
+</main>
+<script src="/briefing.js"></script>
+</body>
+</html>

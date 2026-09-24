@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a desktop launcher for the Security Suite on any OS.
+"""Create a desktop launcher for Testing System on any OS.
 
     python install_shortcut.py            # create it
     python install_shortcut.py --remove   # take it away again
@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-NAME = "Security Suite"
+NAME = "Testing System"
 ICON_ICO = ROOT / "assets" / "securitysuite.ico"
 ICON_PNG = ROOT / "assets" / "securitysuite.png"
 ICON_SVG = ROOT / "assets" / "securitysuite.svg"
@@ -66,7 +66,7 @@ def install_windows(remove: bool) -> Path:
         "$l.TargetPath = %s; "
         "$l.Arguments = 'run.py'; "
         "$l.WorkingDirectory = %s; "
-        "$l.Description = 'Security Suite - YARA SOC detector with live dashboard'; "
+        "$l.Description = 'Testing System - YARA SOC detector with live dashboard'; "
         % (ps_quote(str(target)), ps_quote(sys.executable), ps_quote(str(ROOT)))
     )
     if icon:
@@ -127,7 +127,7 @@ def install_macos(remove: bool) -> Path:
         return target
     script = "\n".join([
         "#!/bin/bash",
-        "# Double-click to start the Security Suite.",
+        "# Double-click to start Testing System.",
         "cd " + shell_quote(str(ROOT)),
         "exec " + shell_quote(sys.executable) + " run.py",
         "",

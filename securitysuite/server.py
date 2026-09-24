@@ -27,6 +27,7 @@ CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
+    ".png": "image/png",
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
 }
@@ -257,8 +258,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if route == "/":
             self._static("index.html")
-        elif route in ("/app.js", "/styles.css"):
+        elif route == "/briefing":
+            self._static("briefing.html")
+        elif route in ("/app.js", "/styles.css", "/briefing.js", "/briefing.css"):
             self._static(route.lstrip("/"))
+        elif route == "/assets/securitysuite.png":
+            self._asset("securitysuite.png")
         elif route == "/favicon.ico":
             self._asset("securitysuite.ico")
         elif route == "/api/state":

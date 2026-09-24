@@ -1,4 +1,4 @@
-/* Security Suite dashboard - vanilla JS, fed by /api/* and an SSE stream. */
+/* Testing System dashboard - vanilla JS, fed by /api/* and an SSE stream. */
 "use strict";
 
 const $ = (id) => document.getElementById(id);

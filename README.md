@@ -1,16 +1,16 @@
-# Security Suite
+# Testing System
 
 <p align="center">
-  <img src="assets/securitysuite.png" alt="Security Suite logo" width="112">
+  <img src="assets/securitysuite.png" alt="Testing System logo" width="112">
 </p>
 
 <p align="center">
-  <strong>A local SOC signal room for YARA detections, IOC pivots, CVE context, triage, and guarded remediation.</strong>
+  <strong>A local testing and defense signal room for YARA detections, IOC pivots, CVE context, triage, and guarded remediation.</strong>
 </p>
 
-![Security Suite dashboard overview](docs/images/dashboard.png)
+![Testing System dashboard overview](docs/images/dashboard.png)
 
-Security Suite watches local folders, scans files against **1,004 YARA rules**,
+Testing System watches local folders, scans files against **1,004 YARA rules**,
 correlates detections with authentication telemetry, extracts indicators,
 enriches CVE findings with NVD/CISA context, and streams everything into a live
 browser dashboard.
@@ -24,6 +24,7 @@ browser dashboard.
 - Database summary: [docs/database-summary.md](docs/database-summary.md)
 - ML scanner reference review: [docs/ML-Vulnerability-Scanner-Reference-Review.md](docs/ML-Vulnerability-Scanner-Reference-Review.md)
 - Main dashboard screenshot: [docs/images/dashboard.png](docs/images/dashboard.png)
+- Read-only security briefing: [open locally at `/briefing`](http://127.0.0.1:8787/briefing)
 
 ## At A Glance
 
@@ -348,7 +349,7 @@ nvds/                          local NVD cache
 Use the README for setup and release checks. Use the operator guide for daily
 workflow:
 
-- [Security Suite Operator Guide](book/Security-Suite-Operator-Guide.md)
+- [Testing System Operator Guide](book/Security-Suite-Operator-Guide.md)
 - [Home SOC Defense Guide](book/Home-SOC-Defense-Guide.md)
 - [Home User Security System Quickstart](docs/Home-User-Security-System-Quickstart.md)
 - [Detection Engineering In Practice PDF](book/Detection-Engineering-in-Practice.pdf)
@@ -366,7 +367,7 @@ workflow:
 
 ## What Changed From `YARA_scanning.py`
 
-| Original | Security Suite |
+| Original | Testing System |
 | --- | --- |
 | One directory, non-recursive scan loop | Recursive watcher with settle checks |
 | Rule compile failure could hide behind fallback behavior | Compile errors are surfaced by rule file |

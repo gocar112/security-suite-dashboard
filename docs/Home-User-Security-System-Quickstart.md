@@ -14,7 +14,7 @@ Build five layers:
 2. Account defense
 3. Device defense
 4. Backup and recovery
-5. Security Suite monitoring
+5. Testing System monitoring
 
 ## Day one
 
@@ -29,9 +29,9 @@ Do these today:
 - Turn on full-disk encryption.
 - Turn on cloud backup.
 - Make one offline backup and unplug the drive.
-- Start Security Suite.
+- Start Testing System.
 
-## Run Security Suite
+## Run Testing System
 
 From the repository root:
 
@@ -74,7 +74,7 @@ Linux with UFW:
 sudo ufw logging on
 ```
 
-Restart Security Suite. The Behavior logs panel will show firewall status and
+Restart Testing System. The Behavior logs panel will show firewall status and
 recent server requests. If no firewall log exists, it will say so plainly.
 
 ## Weekly routine
@@ -82,7 +82,7 @@ recent server requests. If no firewall log exists, it will say so plainly.
 - Confirm updates installed.
 - Check backup status.
 - Scan the watched folder.
-- Review Security Suite findings.
+- Review Testing System findings.
 - Clear lines after testing.
 - Ask: "Did anything ask for a password or payment unexpectedly?"
 
@@ -111,7 +111,7 @@ recent server requests. If no firewall log exists, it will say so plainly.
 
 1. Do not open it.
 2. Move it to `uploads`.
-3. Let Security Suite scan.
+3. Let Testing System scan.
 4. If detected, open the finding.
 5. Quarantine if unsure.
 6. Delete only when confirmed malicious or disposable.
@@ -142,4 +142,4 @@ If you only do five things:
 2. MFA on email and financial accounts.
 3. Automatic updates.
 4. Cloud backup plus unplugged offline backup.
-5. Security Suite watching suspicious downloads.
+5. Testing System watching suspicious downloads.

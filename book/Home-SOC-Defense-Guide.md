@@ -7,7 +7,7 @@ pretending a house is a corporate data center. The goal is simple: know what you
 own, reduce the easy ways in, notice suspicious behavior sooner, keep backups
 safe, and recover without panic.
 
-Security Suite is the local signal room in this plan. It watches folders, scans
+Testing System is the local signal room in this plan. It watches folders, scans
 files with YARA, extracts indicators, correlates authentication telemetry,
 shows firewall and server log status, and gives guarded remediation actions.
 It is not a replacement for your operating system security tools, router
@@ -24,7 +24,7 @@ home defender can inspect suspicious files and keep a small audit trail.
 6. Backups and ransomware recovery
 7. Device hardening
 8. Email, browser, and download strategy
-9. Using Security Suite
+9. Using Testing System
 10. Reading behavior logs
 11. Triage and remediation
 12. Incident playbooks
@@ -67,10 +67,10 @@ Use this stack for a home or small office:
 | Identity | Stop stolen passwords from becoming stolen accounts | Password manager, MFA, recovery codes |
 | Endpoint | Block common malware and bad scripts | Windows Security, macOS security, browser protections |
 | Backup | Survive ransomware, theft, and hardware failure | Cloud backup plus offline drive |
-| Monitoring | Keep suspicious files and logs visible | Security Suite dashboard |
+| Monitoring | Keep suspicious files and logs visible | Testing System dashboard |
 | Response | Make decisions without guessing | Playbooks, quarantine first, restore plan |
 
-Security Suite fits in the monitoring and response layers. It is useful when
+Testing System fits in the monitoring and response layers. It is useful when
 you need to inspect suspicious files, watch a download/drop folder, keep a
 small remediation ledger, or teach family members what a detection looks like.
 
@@ -89,7 +89,7 @@ Do these first.
 8. Turn on full-disk encryption.
 9. Turn on cloud backup.
 10. Create one offline backup on a drive that is unplugged afterward.
-11. Start Security Suite and monitor Downloads or a dedicated `uploads` folder.
+11. Start Testing System and monitor Downloads or a dedicated `uploads` folder.
 12. Enable firewall logging if you want firewall lines inside the dashboard.
 
 The most important account is email. Whoever controls email can often reset
@@ -123,7 +123,7 @@ netsh advfirewall set currentprofile logging droppedconnections enable
 netsh advfirewall set currentprofile logging allowedconnections enable
 ```
 
-Restart Security Suite after enabling logging. The dashboard checks:
+Restart Testing System after enabling logging. The dashboard checks:
 
 ```text
 C:\Windows\System32\LogFiles\Firewall\pfirewall.log
@@ -264,12 +264,12 @@ Browser rules:
 Download handling:
 
 1. Save unknown files to a watched folder.
-2. Let Security Suite scan them.
+2. Let Testing System scan them.
 3. Open the finding if there is a hit.
 4. Quarantine first when unsure.
 5. Delete only after you confirm it is malicious or disposable.
 
-## 9. Using Security Suite
+## 9. Using Testing System
 
 Start:
 
@@ -390,7 +390,7 @@ Use delete when:
 
 1. Do not open it.
 2. Move it into the watched folder.
-3. Let Security Suite scan it.
+3. Let Testing System scan it.
 4. If clean but still suspicious, upload only the hash or use another sandboxed
    workflow; do not upload private files to public services.
 5. If detected, quarantine.
@@ -451,7 +451,7 @@ Monthly:
 - Test restore one file.
 - Review router connected devices.
 - Remove unused apps and browser extensions.
-- Review Security Suite logs and remediation ledger.
+- Review Testing System logs and remediation ledger.
 - Update this repository and rerun smoke tests.
 
 Quarterly:

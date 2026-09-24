@@ -1,4 +1,4 @@
-"""Configuration for the Security Suite.
+"""Configuration for Testing System.
 
 Loads ``config.json`` from the project root when present, otherwise falls back
 to defaults that work out of the box on Windows and Linux.
