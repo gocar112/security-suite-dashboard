@@ -182,7 +182,6 @@ function renderSourceFooter(sources) {
     kev: "KEV",
     github: "GitHub",
     vuls: "Vuls",
-    clawfire: "ClawFire",
   };
   const live = [];
   const ready = [];

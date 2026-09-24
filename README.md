@@ -236,7 +236,6 @@ The source lattice separates live adapters from reference links.
 | CISA KEV | None | Known exploited vulnerability context |
 | GitHub Advisories | None | Reference link |
 | Vuls | None | Reference link |
-| ClawFire | None | Reference link |
 
 Summarize the local database:
 

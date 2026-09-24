@@ -65,7 +65,6 @@ INTEL_SOURCES = (
     ("kev", "https://www.cisa.gov/known-exploited-vulnerabilities-catalog", "catalog"),
     ("osv", "https://osv.dev/", "catalog"),
     ("github", "https://github.com/advisories", "catalog"),
-    ("clawfire", "https://clawfire.ai/", "reference"),
     ("virustotal", "https://www.virustotal.com/", "optional"),
 )
 
