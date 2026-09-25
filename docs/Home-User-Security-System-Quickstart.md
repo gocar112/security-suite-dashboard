@@ -14,7 +14,7 @@ Build five layers:
 2. Account defense
 3. Device defense
 4. Backup and recovery
-5. Testing System monitoring
+5. Security Studio monitoring
 
 ## Day one
 
@@ -29,9 +29,9 @@ Do these today:
 - Turn on full-disk encryption.
 - Turn on cloud backup.
 - Make one offline backup and unplug the drive.
-- Start Testing System.
+- Start Security Studio.
 
-## Run Testing System
+## Run Security Studio
 
 From the repository root:
 
@@ -42,7 +42,7 @@ python run.py
 Open:
 
 ```text
-http://127.0.0.1:8787
+http://127.0.0.1:8900
 ```
 
 Use it this way:
@@ -74,7 +74,7 @@ Linux with UFW:
 sudo ufw logging on
 ```
 
-Restart Testing System. The Behavior logs panel will show firewall status and
+Restart Security Studio. The Behavior logs panel will show firewall status and
 recent server requests. If no firewall log exists, it will say so plainly.
 
 ## Weekly routine
@@ -82,7 +82,7 @@ recent server requests. If no firewall log exists, it will say so plainly.
 - Confirm updates installed.
 - Check backup status.
 - Scan the watched folder.
-- Review Testing System findings.
+- Review Security Studio findings.
 - Clear lines after testing.
 - Ask: "Did anything ask for a password or payment unexpectedly?"
 
@@ -111,7 +111,7 @@ recent server requests. If no firewall log exists, it will say so plainly.
 
 1. Do not open it.
 2. Move it to `uploads`.
-3. Let Testing System scan.
+3. Let Security Studio scan.
 4. If detected, open the finding.
 5. Quarantine if unsure.
 6. Delete only when confirmed malicious or disposable.
@@ -142,4 +142,4 @@ If you only do five things:
 2. MFA on email and financial accounts.
 3. Automatic updates.
 4. Cloud backup plus unplugged offline backup.
-5. Testing System watching suspicious downloads.
+5. Security Studio watching suspicious downloads.

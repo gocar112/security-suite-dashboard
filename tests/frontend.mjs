@@ -14,9 +14,14 @@ function idsIn(markup) {
 }
 
 function referencedIds(script, helper) {
-  const pattern = helper === "$"
-    ? /\$\("([^"]+)"\)/g
-    : /byId\("([^"]+)"\)/g;
+  const patterns = {
+    "$": /\$\("([^"]+)"\)/g,
+    byId: /byId\("([^"]+)"\)/g,
+    studioId: /studioId\("([^"]+)"\)/g,
+    settingId: /settingId\("([^"]+)"\)/g,
+  };
+  const pattern = patterns[helper];
+  assert.ok(pattern, `unknown DOM helper: ${helper}`);
   return new Set([...script.matchAll(pattern)].map((match) => match[1]));
 }
 
@@ -32,8 +37,14 @@ function assertWiring(name, markupFile, scriptFile, helper) {
 
 assertWiring("dashboard", "web/index.html", "web/app.js", "$");
 assertWiring("briefing", "web/briefing.html", "web/briefing.js", "byId");
+assertWiring("studio", "web/studio.html", "web/studio.js", "studioId");
+assertWiring("settings", "web/settings.html", "web/settings.js", "settingId");
 
-for (const asset of ["web/briefing.css", "web/briefing.js", "assets/securitysuite.png"]) {
+for (const asset of [
+  "web/briefing.css", "web/briefing.js", "web/studio.css", "web/studio.js",
+  "web/settings.css", "web/settings.js", "assets/security-studio-icon.png",
+  "assets/security-studio.ico",
+]) {
   assert.ok(fs.existsSync(path.join(root, asset)), `missing asset: ${asset}`);
 }
 

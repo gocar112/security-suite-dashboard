@@ -1,4 +1,5 @@
 const byId = (id) => document.getElementById(id);
+let briefingPaused = false;
 
 function text(id, value) {
   const target = byId(id);
@@ -44,6 +45,7 @@ function renderSources(sources) {
 }
 
 async function refresh() {
+  if (briefingPaused) return;
   try {
     const [state, findings, intel, logs] = await Promise.all([
       getJson("/api/state"), getJson("/api/findings?limit=60"), getJson("/api/intel"), getJson("/api/logs"),
@@ -67,6 +69,13 @@ async function refresh() {
     text("firewall-state", logs.firewall?.status === "ok" ? `${logs.firewall.source}: ${logs.firewall.blocked || 0} blocks` : "Log unavailable");
     text("destructive-actions", behavior.destructive_actions || 0);
     text("firewall-blocks", behavior.firewall_blocks || 0);
+    const severity = stats.by_severity || {};
+    const urgent = (severity.critical || 0) + (severity.high || 0);
+    byId("briefing-review").hidden = urgent === 0;
+    if (urgent) {
+      text("briefing-review-title", `${urgent} high-priority finding${urgent === 1 ? "" : "s"}`);
+      text("briefing-review-copy", "Open the console to inspect evidence and quarantine before considering deletion.");
+    }
     renderFindings(findings.findings);
     renderSources(intel.sources);
   } catch (error) {
@@ -75,6 +84,23 @@ async function refresh() {
     text("detection-status", "Unavailable");
   }
 }
+
+function clearBriefing() {
+  briefingPaused = true;
+  ["sensor-state", "files-scanned", "open-alerts", "sources-count", "watch-monitor", "watch-path", "watch-rules", "firewall-state", "destructive-actions", "firewall-blocks"].forEach((id) => text(id, "-"));
+  byId("finding-rows").innerHTML = "";
+  byId("source-list").innerHTML = "";
+  byId("findings-empty").hidden = false;
+  byId("briefing-review").hidden = true;
+  text("detection-status", "Display cleared");
+  text("updated", "Display cleared; stored records were not changed");
+}
+
+byId("clear-briefing").addEventListener("click", clearBriefing);
+byId("reload-briefing").addEventListener("click", () => {
+  briefingPaused = false;
+  refresh();
+});
 
 refresh();
 setInterval(refresh, 15000);

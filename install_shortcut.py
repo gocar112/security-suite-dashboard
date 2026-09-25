@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a desktop launcher for Testing System on any OS.
+"""Create a desktop launcher for Security Studio on any OS.
 
     python install_shortcut.py            # create it
     python install_shortcut.py --remove   # take it away again
@@ -12,14 +12,15 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
+# Used only for the fixed Windows PowerShell path in install_windows().
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-NAME = "Testing System"
-ICON_ICO = ROOT / "assets" / "securitysuite.ico"
-ICON_PNG = ROOT / "assets" / "securitysuite.png"
+NAME = "Security Studio"
+ICON_ICO = ROOT / "assets" / "security-studio.ico"
+ICON_PNG = ROOT / "assets" / "security-studio-icon.png"
 ICON_SVG = ROOT / "assets" / "securitysuite.svg"
 
 
@@ -66,14 +67,18 @@ def install_windows(remove: bool) -> Path:
         "$l.TargetPath = %s; "
         "$l.Arguments = 'run.py'; "
         "$l.WorkingDirectory = %s; "
-        "$l.Description = 'Testing System - YARA SOC detector with live dashboard'; "
+        "$l.Description = 'Security Studio - local defensive tool arena'; "
         % (ps_quote(str(target)), ps_quote(sys.executable), ps_quote(str(ROOT)))
     )
     if icon:
         script += "$l.IconLocation = %s; " % ps_quote(str(icon) + ",0")
     script += "$l.Save()"
-    subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True,
-                   capture_output=True)
+    powershell = (Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" /
+                  "WindowsPowerShell" / "v1.0" / "powershell.exe")
+    # Every interpolated value is derived from this script's resolved path or
+    # sys.executable and escaped as a PowerShell single-quoted literal.
+    subprocess.run([str(powershell), "-NoProfile", "-Command", script], check=True,
+                   capture_output=True)  # nosec B603
     return target
 
 
@@ -96,7 +101,7 @@ def install_linux(remove: bool) -> Path:
         "[Desktop Entry]",
         "Type=Application",
         "Name=" + NAME,
-        "Comment=YARA SOC detector with a live dashboard",
+        "Comment=Local defensive tool arena with YARA detection",
         "Exec=" + shell_quote(sys.executable) + " run.py",
         "Path=" + str(ROOT),
         "Icon=" + (str(icon) if icon else "security-high"),
@@ -127,7 +132,7 @@ def install_macos(remove: bool) -> Path:
         return target
     script = "\n".join([
         "#!/bin/bash",
-        "# Double-click to start Testing System.",
+        "# Double-click to start Security Studio.",
         "cd " + shell_quote(str(ROOT)),
         "exec " + shell_quote(sys.executable) + " run.py",
         "",

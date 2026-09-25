@@ -127,6 +127,11 @@ class NvdClient:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.lookups_dir.mkdir(parents=True, exist_ok=True)
 
+    def set_api_key(self, api_key: str) -> None:
+        """Apply a key immediately, including the matching request cadence."""
+        self.api_key = (api_key or "").strip()
+        self.limiter = RateLimiter(0.8 if self.api_key else 6.5)
+
     # ------------------------------------------------------------------ http
     def _headers(self) -> dict:
         return {"apiKey": self.api_key} if self.api_key else {}

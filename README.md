@@ -1,19 +1,33 @@
-# Testing System
+# Security Studio
 
 <p align="center">
-  <img src="assets/securitysuite.png" alt="Testing System logo" width="112">
+  <img src="assets/security-studio-icon.png" alt="Security Studio logo" width="140">
 </p>
 
 <p align="center">
   <strong>A local testing and defense signal room for YARA detections, IOC pivots, CVE context, triage, and guarded remediation.</strong>
 </p>
 
-![Testing System dashboard overview](docs/images/dashboard.png)
+![Security Studio dashboard overview](docs/images/dashboard.png)
 
-Testing System watches local folders, scans files against **1,004 YARA rules**,
+Security Studio is a local defensive tool arena. It watches local folders,
+scans files against **1,004 YARA rules**,
 correlates detections with authentication telemetry, extracts indicators,
 enriches CVE findings with NVD/CISA context, and streams everything into a live
 browser dashboard.
+
+## Security Studio Books
+
+<p align="center">
+  <img src="assets/security-studio.png" alt="Security Studio shield, radar, and secured hangar artwork" width="460">
+</p>
+
+| Book | Use it for |
+| --- | --- |
+| [Security Studio Operator Guide](book/Security-Suite-Operator-Guide.md) | Running the console, investigating findings, and using guarded remediation. |
+| [Home SOC Defense Guide](book/Home-SOC-Defense-Guide.md) | Building a practical layered security system for home users. |
+| [Read-Only Briefing Guide](book/Security-Studio-Read-Only-Briefing.md) | Sharing local security visibility without granting control access. |
+| [Detection Engineering in Practice](book/Detection-Engineering-in-Practice.pdf) | A printable field guide in PDF format. |
 
 ## Quick Links
 
@@ -24,7 +38,8 @@ browser dashboard.
 - Database summary: [docs/database-summary.md](docs/database-summary.md)
 - ML scanner reference review: [docs/ML-Vulnerability-Scanner-Reference-Review.md](docs/ML-Vulnerability-Scanner-Reference-Review.md)
 - Main dashboard screenshot: [docs/images/dashboard.png](docs/images/dashboard.png)
-- Read-only security briefing: [open locally at `/briefing`](http://127.0.0.1:8787/briefing)
+- Read-only security briefing: [open locally at `/briefing`](http://127.0.0.1:8900/briefing)
+- API key setup: [open locally at `/settings`](http://127.0.0.1:8900/settings)
 
 ## At A Glance
 
@@ -47,11 +62,15 @@ python run.py
 Then open:
 
 ```text
-http://127.0.0.1:8787
+http://127.0.0.1:8900
 ```
 
 The server is built on Python's standard `http.server`, and the dashboard is
 plain HTML/CSS/JS. There is no frontend build step.
+
+The first screen is the **Tool Arena**. Use it to open the Detection Console,
+read-only Briefing, local API Key Setup, and operator guides without mixing
+their privileges.
 
 Fresh machine setup:
 
@@ -77,6 +96,29 @@ python tools\summarize_database.py
 | `pywin32` | Optional, Windows only | Windows Security event-log telemetry |
 
 Python 3.10 or newer is recommended.
+
+## Optional API Keys
+
+Open `http://127.0.0.1:8900/settings` and paste an NVD or VirusTotal key. The
+form saves supported keys to the local, git-ignored `.env` file and activates
+them immediately. Saved values are never returned to the browser.
+
+- **NVD:** optional; raises the CVE API rate limit.
+- **VirusTotal:** optional; enables file-hash reputation lookups. Files are
+  never uploaded.
+- Use **Clear fields** to erase unsaved text without removing stored keys.
+- Select **Remove saved key** and save to remove a configured key.
+
+For unattended installation, the equivalent file is:
+
+```dotenv
+NVD_API_KEY=replace_with_your_key
+VIRUSTOTAL_API_KEY=replace_with_your_key
+```
+
+Never commit `.env` or expose the local control plane to the internet. GitHub
+hosts the source code and guides; the running security service remains bound to
+`127.0.0.1` unless authentication and TLS are added by the operator.
 
 ## How To Use It
 
@@ -247,7 +289,7 @@ python tools\summarize_database.py
 Sync a trailing NVD window while the server is running:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/api/nvd/sync -ContentType "application/json" -Body '{"days":3}'
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8900/api/nvd/sync -ContentType "application/json" -Body '{"days":3}'
 ```
 
 ## CLI
@@ -275,7 +317,7 @@ them, create `config.json` in the project root.
   "max_file_mb": 64,
   "lookback_minutes": 5,
   "host": "127.0.0.1",
-  "port": 8787,
+  "port": 8900,
   "auto_remediate": true,
   "auto_remediate_severity": "critical",
   "auto_remediate_action": "quarantine"
@@ -349,7 +391,8 @@ nvds/                          local NVD cache
 Use the README for setup and release checks. Use the operator guide for daily
 workflow:
 
-- [Testing System Operator Guide](book/Security-Suite-Operator-Guide.md)
+- [Security Studio Operator Guide](book/Security-Suite-Operator-Guide.md)
+- [Security Studio Read-Only Briefing Guide](book/Security-Studio-Read-Only-Briefing.md)
 - [Home SOC Defense Guide](book/Home-SOC-Defense-Guide.md)
 - [Home User Security System Quickstart](docs/Home-User-Security-System-Quickstart.md)
 - [Detection Engineering In Practice PDF](book/Detection-Engineering-in-Practice.pdf)
@@ -362,12 +405,13 @@ workflow:
 - Never paste API keys, GitHub tokens, passwords, or private keys into commits,
   issues, README files, or chat.
 - This client never uploads files to VirusTotal. Hash reputation is lookup-only.
-- Remediation is manual by default. Leave auto-remediation off until rules are
-  tested against your own data.
+- Critical detections in `SecurityDrop` are auto-quarantined by default; delete
+  remains manual and confirmed. Test rules against your own data before adding
+  any broader remediation root.
 
 ## What Changed From `YARA_scanning.py`
 
-| Original | Testing System |
+| Original | Security Studio |
 | --- | --- |
 | One directory, non-recursive scan loop | Recursive watcher with settle checks |
 | Rule compile failure could hide behind fallback behavior | Compile errors are surfaced by rule file |

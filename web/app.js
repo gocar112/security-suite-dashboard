@@ -1,4 +1,4 @@
-/* Testing System dashboard - vanilla JS, fed by /api/* and an SSE stream. */
+/* Security Studio dashboard - vanilla JS, fed by /api/* and an SSE stream. */
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -120,6 +120,7 @@ function renderStats(stats, monitor) {
   renderTopRules(stats.top_rules || []);
   renderBars(stats.timeline || []);
   renderPosture(stats);
+  maybeShowRemediationAlert(sev);
 
   if (monitor) {
     state.paused = !!monitor.paused;
@@ -343,6 +344,22 @@ function clearLocalLines() {
   closeDrawer();
 }
 
+function resetFindingsView() {
+  $("q").value = "";
+  $("f-sev").value = "all";
+  $("f-status").value = "all";
+  $("f-type").value = "yara_match";
+  state.feedSeeded = false;
+  loadFindings();
+  toast("View reset; stored findings were not changed");
+}
+
+function resetRiskForm() {
+  $("risk-form").reset();
+  $("risk-auth").value = "0";
+  $("risk-result").innerHTML = '<span class="faint">Enter verified evidence to build an explainable priority estimate.</span>';
+}
+
 async function loadFindings() {
   const params = new URLSearchParams({
     limit: "300",
@@ -562,6 +579,16 @@ function renderLogs(data) {
           '<span class="meta">' + clockOf(r.timestamp) + '</span>' +
         '</div>').join("")
     : '<span class="faint">No server requests recorded yet.</span>';
+}
+
+function maybeShowRemediationAlert(severity) {
+  const urgent = (severity.critical || 0) + (severity.high || 0);
+  const dialog = $("console-remediation-dialog");
+  if (!urgent || !dialog || sessionStorage.getItem("studio-console-remediation-dismissed")) return;
+  $("console-remediation-message").textContent = urgent + " critical or high finding" +
+    (urgent === 1 ? " needs" : "s need") +
+    " operator review. Inspect the evidence and quarantine before considering deletion.";
+  if (!dialog.open && typeof dialog.showModal === "function") dialog.showModal();
 }
 
 /* ----------------------------------------------------------- risk model */
@@ -1143,6 +1170,7 @@ function wire() {
       toast("Clear failed: " + err.message, true);
     }
   });
+  $("btn-reset-view").addEventListener("click", resetFindingsView);
 
   ["ioc-type", "ioc-external"].forEach((id) => {
     const el = $(id);
@@ -1173,7 +1201,15 @@ function wire() {
 
   if ($("risk-form")) {
     $("risk-form").addEventListener("submit", assessRisk);
+    $("risk-reset").addEventListener("click", resetRiskForm);
   }
+
+  const remediationDialog = $("console-remediation-dialog");
+  remediationDialog.addEventListener("close", () => sessionStorage.setItem("studio-console-remediation-dismissed", "1"));
+  $("review-remediation").addEventListener("click", () => {
+    sessionStorage.setItem("studio-console-remediation-dismissed", "1");
+    setTimeout(() => $("findings").scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  });
 
   $("btn-scan").addEventListener("click", async () => {
     const path = $("scan-path").value.trim();

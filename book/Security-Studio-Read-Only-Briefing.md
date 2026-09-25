@@ -1,4 +1,10 @@
-# Testing System Read-Only Briefing
+# Security Studio Read-Only Briefing
+
+<p align="center">
+  <img src="../assets/security-studio-icon.png" alt="Security Studio shield and radar icon" width="150">
+</p>
+
+<p align="center"><strong>Safe visibility without control access</strong></p>
 
 ## Purpose
 
@@ -30,7 +36,7 @@ without authentication and a proper access-control layer.
 
 ## Operator Handoff
 
-1. Open `http://127.0.0.1:8787/briefing` for a concise status check.
+1. Open `http://127.0.0.1:8900/briefing` for a concise status check.
 2. Review any open alerts and the recent detection table.
 3. Open the control room only when an authorized operator needs to investigate
    or respond.

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080d10">
+<title>Security Studio / Tool Arena</title>
+<link rel="stylesheet" href="/studio.css">
+<link rel="icon" href="/favicon.ico">
+</head>
+<body>
+<main class="arena-shell">
+  <header class="arena-header">
+    <a class="arena-brand" href="/" aria-label="Security Studio home"><img src="/assets/security-studio-icon.png" alt=""><span><b>Security Studio</b><small>Local defensive tool arena</small></span></a>
+    <div class="arena-status"><i id="arena-dot"></i><span id="arena-state">Connecting to local sensor</span></div>
+    <button class="quiet-button" id="clear-arena" type="button" title="Reset local display preferences">⌫ Reset arena</button>
+  </header>
+
+  <section class="arena-intro">
+    <div class="arena-copy"><p class="signal-label">Restricted research workspace / local only</p><h1>One guarded entrance.<br>Separate security tools.</h1><p>Security Studio keeps detection, review, key setup, and documentation in distinct work areas. Nothing here claims government affiliation, and no tool is exposed beyond this computer.</p><div class="symbol-line" aria-label="System capabilities"><span>◈ Detect</span><span>⌁ Analyze</span><span>⌑ Correlate</span><span>⛨ Contain</span></div></div>
+    <div class="arena-emblem"><img src="/assets/security-studio.png" alt="Security Studio shield with radar and secured hangar"><span>STUDIO CHANNEL / READY</span></div>
+  </section>
+
+  <section class="arena-board" aria-label="Security Studio tools">
+    <div class="live-panel">
+      <div class="panel-heading"><span>Live local posture</span><small id="arena-updated">Waiting for status</small></div>
+      <div class="posture-readout"><strong id="arena-score">--</strong><span id="arena-label">checking</span></div>
+      <dl class="arena-metrics"><div><dt>Rules</dt><dd id="arena-rules">--</dd></div><div><dt>Open alerts</dt><dd id="arena-alerts">--</dd></div><div><dt>Watch paths</dt><dd id="arena-paths">--</dd></div><div><dt>Intel keys</dt><dd id="arena-keys">--</dd></div></dl>
+      <div class="remediation-strip" id="remediation-strip"><span>⛨</span><b>No remediation alert</b><small>High and critical findings will appear here.</small></div>
+    </div>
+
+    <nav class="tool-rack" aria-label="Available tools">
+      <a class="tool-entry primary" href="/console"><span class="tool-symbol">⌁</span><span><b>Detection Console</b><small>Scan, investigate, triage, and remediate findings.</small></span><i>Open</i></a>
+      <a class="tool-entry" href="/briefing"><span class="tool-symbol">◉</span><span><b>Security Briefing</b><small>Read-only posture and recent detection summary.</small></span><i>View</i></a>
+      <a class="tool-entry" href="/settings"><span class="tool-symbol">⌑</span><span><b>API Key Setup</b><small>Configure NVD and VirusTotal locally without exposing keys.</small></span><i>Configure</i></a>
+      <a class="tool-entry" href="https://github.com/gocar112/security-suite-dashboard/tree/fix/audit-pass#documentation" target="_blank" rel="noreferrer"><span class="tool-symbol">▤</span><span><b>Operator Guides</b><small>Open the books and home-defense instructions on GitHub.</small></span><i>Read</i></a>
+    </nav>
+  </section>
+  <footer><span>Security Studio</span><span>Localhost boundary active · audit records preserved</span></footer>
+</main>
+
+<dialog id="remediation-dialog">
+  <form method="dialog"><div class="dialog-symbol">⚠</div><h2>Remediation review needed</h2><p id="remediation-message">A high-priority finding needs operator review.</p><div class="dialog-actions"><button value="dismiss">Dismiss</button><a href="/console#findings">Review findings</a></div></form>
+</dialog>
+<script src="/studio.js"></script>
+</body>
+</html>

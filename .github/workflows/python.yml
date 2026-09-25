@@ -1,4 +1,4 @@
-name: Python security suite checks
+name: Security Studio checks
 
 on:
   push:

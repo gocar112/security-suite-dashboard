@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from .config import save_api_keys
 from .ioc import summarise, to_csv
 from .net import HttpError, get_json
 from .risk import RiskRecommender
@@ -283,15 +284,21 @@ class Handler(BaseHTTPRequestHandler):
         params = {k: v[0] for k, v in parse_qs(parsed.query).items()}
 
         if route == "/":
+            self._static("studio.html")
+        elif route == "/console":
             self._static("index.html")
         elif route == "/briefing":
             self._static("briefing.html")
-        elif route in ("/app.js", "/styles.css", "/briefing.js", "/briefing.css"):
+        elif route == "/settings":
+            self._static("settings.html")
+        elif route in ("/app.js", "/styles.css", "/briefing.js", "/briefing.css",
+                       "/studio.js", "/studio.css", "/settings.js", "/settings.css"):
             self._static(route.lstrip("/"))
-        elif route == "/assets/securitysuite.png":
-            self._asset("securitysuite.png")
+        elif route in ("/assets/securitysuite.png", "/assets/security-studio.png",
+                       "/assets/security-studio-icon.png"):
+            self._asset(route.rsplit("/", 1)[-1])
         elif route == "/favicon.ico":
-            self._asset("securitysuite.ico")
+            self._asset("security-studio.ico")
         elif route == "/api/state":
             self._json(self._state())
         elif route == "/api/findings":
@@ -317,6 +324,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self._logs())
         elif route == "/api/model":
             self._json(RISK_MODEL.schema())
+        elif route == "/api/settings":
+            self._json({
+                "virustotal_configured": bool(getattr(self.ctx.vt, "api_key", "")),
+                "nvd_configured": bool(getattr(self.ctx.nvd, "api_key", "")),
+                "storage": ".env (local and git-ignored)",
+            })
         elif route == "/api/intel":
             self._json(self._intel())
         elif route == "/api/iocs":
@@ -443,7 +456,39 @@ class Handler(BaseHTTPRequestHandler):
             return
         body = self._body()
 
-        if route == "/api/model/predict":
+        if route == "/api/settings":
+            updates = {}
+            fields = (
+                ("virustotal_api_key", "remove_virustotal", "VIRUSTOTAL_API_KEY"),
+                ("nvd_api_key", "remove_nvd", "NVD_API_KEY"),
+            )
+            for field, remove_field, env_name in fields:
+                if body.get(remove_field) is True:
+                    updates[env_name] = ""
+                elif field in body and str(body.get(field) or "").strip():
+                    updates[env_name] = str(body[field]).strip()
+            if not updates:
+                self._json({"error": "enter a key or select a key to remove"}, 400)
+                return
+            try:
+                status = save_api_keys(updates)
+            except ValueError as exc:
+                self._json({"error": str(exc)}, 400)
+                return
+            if "VIRUSTOTAL_API_KEY" in updates and self.ctx.vt is not None:
+                self.ctx.vt.set_api_key(updates["VIRUSTOTAL_API_KEY"])
+                self.ctx.cfg.virustotal_api_key = updates["VIRUSTOTAL_API_KEY"]
+                with _VT_STATUS_LOCK:
+                    _VT_STATUS_CACHE.clear()
+            if "NVD_API_KEY" in updates and self.ctx.nvd is not None:
+                self.ctx.nvd.set_api_key(updates["NVD_API_KEY"])
+                self.ctx.cfg.nvd_api_key = updates["NVD_API_KEY"]
+            self._json({
+                "saved": True,
+                "virustotal_configured": status["VIRUSTOTAL_API_KEY"],
+                "nvd_configured": status["NVD_API_KEY"],
+            })
+        elif route == "/api/model/predict":
             try:
                 result = RISK_MODEL.assess(body)
             except ValueError as exc:

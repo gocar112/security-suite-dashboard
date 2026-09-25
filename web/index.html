@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#07111f">
-<title>Testing System / Signal Room</title>
+<title>Security Studio / Detection Console</title>
 <link rel="stylesheet" href="/styles.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%2347e0c0' d='M12 2 4 5.7v5.9c0 4.7 3.3 8.7 8 10.4 4.7-1.7 8-5.7 8-10.4V5.7L12 2Z'/></svg>">
 </head>
@@ -13,7 +13,7 @@
   <header class="topbar">
     <div class="brand-lockup">
       <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-      <div><div class="brand-name">Testing System</div><div class="brand-sub" id="sub-title">Signal room / local sensor</div></div>
+      <div><div class="brand-name">Security Studio</div><div class="brand-sub" id="sub-title">Detection console / local sensor</div></div>
     </div>
     <div class="topbar-separator"></div>
     <div class="status-cluster">
@@ -22,7 +22,9 @@
       <div class="status-chip quiet" id="rules-pill">0 rules</div>
     </div>
     <div class="top-actions">
+      <a class="control-btn briefing-link" href="/" title="Return to the Security Studio tool arena">Studio</a>
       <a class="control-btn briefing-link" href="/briefing" title="Open read-only security briefing">Briefing</a>
+      <a class="control-btn briefing-link" href="/settings" title="Configure local API keys">API keys</a>
       <button id="audio-toggle" class="icon-btn" aria-pressed="false" title="Toggle event sound"><span class="speaker-icon">◖</span><span id="audio-label">sound off</span></button>
       <button id="btn-monitor" class="control-btn">Pause</button>
       <button id="btn-reload" class="control-btn accent">Reload rules</button>
@@ -82,9 +84,9 @@
 
     <section class="workspace-grid">
       <div class="workspace-main">
-        <div class="panel findings-panel">
+        <div class="panel findings-panel" id="findings">
           <div class="panel-head"><div><div class="section-kicker">01 / Detection stream</div><h2>Findings</h2></div><span class="tag" id="findings-count">0 shown</span></div>
-          <div class="toolbar"><label class="search-box"><span>⌕</span><input type="search" id="q" placeholder="Search file, rule, hash, account..."></label><select id="f-sev"><option value="all">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="info">Info</option></select><select id="f-status"><option value="all">All statuses</option><option value="new">New</option><option value="acknowledged">Acknowledged</option><option value="resolved">Resolved</option><option value="false_positive">False positive</option></select><select id="f-type"><option value="yara_match">Detections</option><option value="all">All events</option><option value="scan">Clean scans</option><option value="error">Errors</option></select><button class="danger-btn clear-lines-btn" id="btn-clear-lines" title="Back up and clear active findings, feed, and triage lines" aria-label="Clear dashboard lines">Clear lines</button></div>
+          <div class="toolbar"><label class="search-box"><span>⌕</span><input type="search" id="q" placeholder="Search file, rule, hash, account..."></label><select id="f-sev"><option value="all">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="info">Info</option></select><select id="f-status"><option value="all">All statuses</option><option value="new">New</option><option value="acknowledged">Acknowledged</option><option value="resolved">Resolved</option><option value="false_positive">False positive</option></select><select id="f-type"><option value="yara_match">Detections</option><option value="all">All events</option><option value="scan">Clean scans</option><option value="error">Errors</option></select><button class="control-btn" id="btn-reset-view" title="Clear search and filters without deleting findings">⌫ Reset view</button><button class="danger-btn clear-lines-btn" id="btn-clear-lines" title="Back up and clear active findings, feed, and triage lines" aria-label="Clear dashboard lines">Clear lines</button></div>
           <div class="table-wrap"><table><thead><tr><th>Severity</th><th>Time</th><th>File</th><th>Rules</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table><div class="empty" id="empty"><span class="empty-orbit">⊙</span><b>No signals in the room</b><span>Drop a file into the watched folder or run an on-demand scan.</span></div></div>
         </div>
         <div class="panel risk-panel">
@@ -100,7 +102,7 @@
             <label><span>SHA-256</span><input id="risk-sha" name="sha256" maxlength="64" placeholder="64 hex characters"></label>
             <label><span>Auth failures</span><input id="risk-auth" name="auth_failures" type="number" min="0" max="10000" value="0"></label>
             <label class="risk-check"><input id="risk-kev" name="known_exploited" type="checkbox"><span>Known exploited</span></label>
-            <button class="action-btn risk-submit" id="risk-submit" type="submit">Assess risk</button>
+            <button class="control-btn risk-reset" id="risk-reset" type="button">⌫ Clear</button><button class="action-btn risk-submit" id="risk-submit" type="submit">Assess risk</button>
           </form>
           <div class="risk-result" id="risk-result"><span class="faint">Enter verified evidence to build an explainable priority estimate.</span></div>
         </div>
@@ -143,8 +145,11 @@
       </aside>
     </section>
   </main>
-  <footer class="footer"><span>Testing System / convergence console</span><span id="footer-sources">NVD · OSV · VirusTotal optional · KEV · GitHub · Vuls</span></footer>
+  <footer class="footer"><span>Security Studio / convergence console</span><span id="footer-sources">NVD · OSV · VirusTotal optional · KEV · GitHub · Vuls</span></footer>
 </div>
+<dialog class="remediation-dialog" id="console-remediation-dialog">
+  <form method="dialog"><div class="remediation-dialog-symbol">!</div><h2>Remediation review needed</h2><p id="console-remediation-message">A high-priority finding needs operator review.</p><div class="remediation-dialog-actions"><button value="dismiss">Dismiss</button><button value="review" id="review-remediation">Review findings</button></div></form>
+</dialog>
 <script src="/app.js"></script>
 </body>
 </html>

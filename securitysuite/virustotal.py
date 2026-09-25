@@ -129,6 +129,13 @@ class VtClient:
         self.last_error: str | None = None
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
+    def set_api_key(self, api_key: str) -> None:
+        """Apply a key without exposing it and invalidate cached capabilities."""
+        with self._lock:
+            self.api_key = (api_key or "").strip()
+            self._capabilities = None
+            self.last_error = None
+
     @property
     def configured(self) -> bool:
         return bool(self.api_key)

@@ -2,6 +2,7 @@
 data/
 config.json
 .env
+.env.tmp
 
 # Vulnerability feed cache: keep the directory, never commit the payload
 nvds/*
@@ -25,6 +26,7 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.audit-cache/
 
 # Editors / OS
 .vscode/

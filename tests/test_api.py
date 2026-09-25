@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import json
+import os
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -17,13 +18,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import securitysuite.config as config_module
 from securitysuite.config import load_config
 from securitysuite.engine import YaraEngine
 from securitysuite.net import get_json, post_json
+from securitysuite.nvd import NvdClient
 from securitysuite.server import MAX_BODY, serve
 from securitysuite.store import EventStore
 from securitysuite.telemetry import AuthTelemetry
 from securitysuite.watcher import Monitor
+from securitysuite.virustotal import VtClient
 
 
 def assert_true(condition: bool, message: str) -> None:
@@ -77,6 +81,9 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="ss_api_"))
     watch = tmp / "watch"
     watch.mkdir()
+    original_env_file = config_module.ENV_FILE
+    original_env = {name: os.environ.get(name) for name in config_module.API_KEY_NAMES}
+    config_module.ENV_FILE = tmp / ".env"
 
     cfg = load_config()
     cfg.watch_paths = [str(watch)]
@@ -88,6 +95,8 @@ def main() -> int:
     store = EventStore(cfg.findings_log, cfg.triage_file, 500)
     telemetry = AuthTelemetry(cfg.auth_log_path, 5, 0, 25)
     monitor = Monitor(cfg, engine, store, telemetry, None)
+    nvd = NvdClient(str(tmp / "nvd"))
+    vt = VtClient("", str(tmp / "vt"))
     sample = None
     for i in range(40):
         event = store.add({"event_type": "yara_match", "severity": "high",
@@ -95,7 +104,7 @@ def main() -> int:
         if sample is None:
             sample = event
 
-    httpd = serve(cfg, engine, store, telemetry, monitor)
+    httpd = serve(cfg, engine, store, telemetry, monitor, nvd=nvd, vt=vt)
     base = "http://127.0.0.1:%d" % cfg.port
     try:
         time.sleep(0.5)
@@ -124,10 +133,12 @@ def main() -> int:
         assert_true(len(body) > 0, "favicon body was empty")
 
         # Core reads still work.
-        for path in ("/", "/briefing", "/app.js", "/styles.css", "/briefing.js",
-                     "/briefing.css", "/assets/securitysuite.png", "/api/state",
+        for path in ("/", "/console", "/briefing", "/settings", "/app.js",
+                     "/styles.css", "/briefing.js", "/briefing.css", "/studio.js",
+                     "/studio.css", "/settings.js", "/settings.css",
+                     "/assets/security-studio.png", "/assets/security-studio-icon.png", "/api/state",
                      "/api/rules", "/api/findings", "/api/iocs", "/api/model",
-                     "/api/intel", "/api/logs"):
+                     "/api/intel", "/api/logs", "/api/settings"):
             status, _ = get(base, path)
             assert_true(status == 200, "%s returned %s" % (path, status))
 
@@ -154,6 +165,32 @@ def main() -> int:
 
         status, _ = post(base, "/api/scan", {})
         assert_true(status == 400, "empty scan request should be rejected")
+
+        vt_key = "VT_TEST_" + "a" * 32
+        nvd_key = "NVD_TEST_" + "b" * 32
+        status, body = post(base, "/api/settings", {
+            "virustotal_api_key": vt_key,
+            "nvd_api_key": nvd_key,
+        })
+        assert_true(status == 200, "API key settings should save")
+        assert_true(vt_key.encode() not in body and nvd_key.encode() not in body,
+                    "settings response exposed an API key")
+        status, body = get(base, "/api/settings")
+        assert_true(status == 200 and b'"virustotal_configured": true' in body,
+                    "settings status should report configured keys")
+        assert_true(vt_key.encode() not in body and nvd_key.encode() not in body,
+                    "settings status exposed an API key")
+        assert_true(nvd.limiter.min_interval == 0.8,
+                    "NVD key update did not activate the keyed rate limit")
+        assert_true(config_module.ENV_FILE.read_text(encoding="utf-8").count("_API_KEY=") == 2,
+                    "local key file was not written as expected")
+        status, _ = post(base, "/api/settings", {"nvd_api_key": "too-short"})
+        assert_true(status == 400, "invalid API key should be rejected")
+        status, body = post(base, "/api/settings", {
+            "remove_virustotal": True, "remove_nvd": True,
+        })
+        assert_true(status == 200 and b'"nvd_configured": false' in body,
+                    "saved keys should be removable")
         status, body = post(base, "/api/model/predict", {
             "vulnerability_type": "SQL injection",
             "impact": "Sensitive data exposure on an internet-facing service",
@@ -199,6 +236,12 @@ def main() -> int:
         return 0
     finally:
         httpd.shutdown()
+        config_module.ENV_FILE = original_env_file
+        for name, value in original_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 if __name__ == "__main__":

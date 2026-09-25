@@ -1,4 +1,4 @@
-"""Configuration for Testing System.
+"""Configuration for Security Studio.
 
 Loads ``config.json`` from the project root when present, otherwise falls back
 to defaults that work out of the box on Windows and Linux.
@@ -7,16 +7,21 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import threading
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_FILE = ROOT / "config.json"
+ENV_FILE = ROOT / ".env"
+API_KEY_NAMES = ("VIRUSTOTAL_API_KEY", "NVD_API_KEY")
+_env_lock = threading.Lock()
 
 
 def _load_local_env() -> None:
     """Load simple KEY=value pairs for local adapters without a dependency."""
-    env_file = ROOT / ".env"
+    env_file = ENV_FILE
     if not env_file.exists():
         return
     try:
@@ -34,6 +39,63 @@ def _load_local_env() -> None:
 
 
 _load_local_env()
+
+
+def _validate_api_key(value: str) -> str:
+    value = value.strip()
+    if not 20 <= len(value) <= 256:
+        raise ValueError("API keys must contain 20 to 256 characters")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", value):
+        raise ValueError("API keys may contain only letters, numbers, dot, dash, and underscore")
+    return value
+
+
+def save_api_keys(updates: dict[str, str], path: Path | None = None) -> dict:
+    """Atomically update supported secrets without returning their values."""
+    unknown = set(updates) - set(API_KEY_NAMES)
+    if unknown:
+        raise ValueError("unsupported API key setting")
+    clean = {
+        name: (_validate_api_key(value) if value else "")
+        for name, value in updates.items()
+    }
+    target = (path or ENV_FILE).resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with _env_lock:
+        try:
+            lines = target.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            lines = ["# Security Studio local secrets - never commit this file."]
+        except OSError as exc:
+            raise ValueError("could not read the local API key file") from exc
+
+        kept = []
+        for line in lines:
+            key = line.split("=", 1)[0].strip() if "=" in line else ""
+            if key not in clean:
+                kept.append(line)
+        for name in API_KEY_NAMES:
+            if name in clean and clean[name]:
+                kept.append(name + "=" + clean[name])
+
+        temporary = target.with_name(target.name + ".tmp")
+        try:
+            temporary.write_text("\n".join(kept).rstrip() + "\n", encoding="utf-8")
+            os.replace(temporary, target)
+            try:
+                target.chmod(0o600)
+            except OSError:
+                pass
+        except OSError as exc:
+            temporary.unlink(missing_ok=True)
+            raise ValueError("could not save the local API key file") from exc
+
+    for name, value in clean.items():
+        if value:
+            os.environ[name] = value
+        else:
+            os.environ.pop(name, None)
+    return {name: bool(os.getenv(name, "")) for name in API_KEY_NAMES}
 
 
 @dataclass
@@ -65,7 +127,7 @@ class Config:
 
     # --- server ---
     host: str = "127.0.0.1"
-    port: int = 8787
+    port: int = 8900
 
     # --- optional external intelligence ---
     virustotal_api_key: str = field(default_factory=lambda: os.getenv("VIRUSTOTAL_API_KEY", ""))

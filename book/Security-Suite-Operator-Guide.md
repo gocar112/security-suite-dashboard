@@ -1,8 +1,14 @@
-# Testing System Operator Guide
+# Security Studio Operator Guide
+
+<p align="center">
+  <img src="../assets/security-studio-icon.png" alt="Security Studio shield and radar icon" width="180">
+</p>
+
+<p align="center"><strong>Detection, investigation, containment, and recovery for local operators</strong></p>
 
 Version: 2026-09-12
 
-This book explains how to run Testing System, read the dashboard, triage
+This book explains how to run Security Studio, read the dashboard, triage
 findings, pivot indicators, update the local vulnerability database, and use
 remediation without turning a false positive into data loss.
 
@@ -30,7 +36,7 @@ actions such as quarantine, restore, delete, purge, and clear lines.
 
 ## 1. What this tool is
 
-Testing System is built for local defensive testing and small SOC-style
+Security Studio is built for local defensive testing and small SOC-style
 operations. It is not an antivirus replacement. It is a signal room: the tool
 shows what matched, why it matched, what indicators were found, and what action
 an operator can safely take.
@@ -62,7 +68,7 @@ python run.py
 Then open:
 
 ```text
-http://127.0.0.1:8787
+http://127.0.0.1:8900
 ```
 
 The browser usually opens automatically. The console should report the loaded
@@ -341,7 +347,7 @@ Use the suite as one layer in a home security system:
 2. Accounts: password manager, unique passwords, MFA on critical accounts.
 3. Devices: automatic updates, disk encryption, built-in endpoint protection.
 4. Backups: cloud backup plus one offline backup that is unplugged after use.
-5. Monitoring: Testing System watches suspicious downloads and shows logs.
+5. Monitoring: Security Studio watches suspicious downloads and shows logs.
 6. Response: quarantine first, delete only after confirmation, restore from a
    clean backup when needed.
 
@@ -408,7 +414,7 @@ Quarantine does nothing:
 Clear lines does not clear the table:
 
 - Confirm the server is running.
-- Confirm the browser is connected to `127.0.0.1:8787`.
+- Confirm the browser is connected to `127.0.0.1:8900`.
 - Refresh the page after the clear action.
 - Check for a new folder under `data/log-backups/`.
 
@@ -436,7 +442,7 @@ Behavior logs show no firewall data:
 
 - Confirm firewall logging is enabled.
 - Confirm the log path exists.
-- Restart Testing System.
+- Restart Security Studio.
 - Remember that blocked inbound noise is normal; repeated outbound traffic from
   an unknown device matters more.
 

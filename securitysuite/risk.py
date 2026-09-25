@@ -39,7 +39,7 @@ EXPOSURE_WEIGHTS = {
 class RiskRecommender:
     """Explainable baseline used by the dashboard and JSON API."""
 
-    model_id = "soc-risk-baseline-v1"
+    model_id = "security-studio-risk-v2"
 
     @classmethod
     def schema(cls) -> dict:
@@ -198,5 +198,11 @@ class RiskRecommender:
                 "evidence_quality": evidence_quality,
                 "factors": factors,
                 "recommendations": cls._recommendations(data, severity),
+                "requires_remediation": severity in ("critical", "high"),
+                "recommended_action": (
+                    "quarantine_and_review" if severity == "critical"
+                    else "review_and_contain" if severity == "high"
+                    else "validate_and_monitor"
+                ),
             },
         }

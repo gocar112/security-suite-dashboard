@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080d10">
+<title>Security Studio / API Key Setup</title>
+<link rel="stylesheet" href="/settings.css">
+<link rel="icon" href="/favicon.ico">
+</head>
+<body>
+<main class="settings-shell">
+  <header class="settings-header">
+    <a class="settings-brand" href="/" aria-label="Security Studio home"><img src="/assets/security-studio-icon.png" alt=""><span><b>Security Studio</b><small>Local key vault</small></span></a>
+    <nav aria-label="Security Studio navigation"><a href="/console">Console</a><a href="/briefing">Briefing</a></nav>
+  </header>
+
+  <section class="settings-intro">
+    <p class="signal-label">⌑ Local configuration channel</p>
+    <h1>Connect intelligence.<br>Keep secrets local.</h1>
+    <p>API keys are written to the git-ignored <code>.env</code> file on this computer. Saved values are never returned to the browser or included in the dashboard API.</p>
+  </section>
+
+  <form id="key-form" class="key-console">
+    <div class="console-head"><span>Adapter credentials</span><small id="storage-label">Checking local storage</small></div>
+    <section class="key-row" aria-labelledby="vt-title">
+      <div class="key-symbol">VT</div>
+      <div class="key-copy"><h2 id="vt-title">VirusTotal</h2><p>Optional reputation lookups by file hash. Security Studio never uploads files.</p><a href="https://www.virustotal.com/gui/my-apikey" target="_blank" rel="noreferrer">Open VirusTotal key page ↗</a></div>
+      <div class="key-input"><span class="key-state" id="vt-state">Checking</span><label for="vt-key">New API key</label><input id="vt-key" name="virustotal_api_key" type="password" minlength="20" maxlength="256" autocomplete="off" spellcheck="false" placeholder="Paste key to add or replace"><label class="remove-line"><input id="remove-vt" type="checkbox"> Remove saved key</label></div>
+    </section>
+    <section class="key-row" aria-labelledby="nvd-title">
+      <div class="key-symbol">N</div>
+      <div class="key-copy"><h2 id="nvd-title">NVD</h2><p>Optional rate-limit key for faster CVE context. NVD works without a key.</p><a href="https://nvd.nist.gov/developers/request-an-api-key" target="_blank" rel="noreferrer">Request an NVD key ↗</a></div>
+      <div class="key-input"><span class="key-state" id="nvd-state">Checking</span><label for="nvd-key">New API key</label><input id="nvd-key" name="nvd_api_key" type="password" minlength="20" maxlength="256" autocomplete="off" spellcheck="false" placeholder="Paste key to add or replace"><label class="remove-line"><input id="remove-nvd" type="checkbox"> Remove saved key</label></div>
+    </section>
+    <div class="form-actions"><button class="quiet-button" id="clear-key-form" type="button">⌫ Clear fields</button><span id="save-status" role="status">No secret leaves localhost.</span><button class="save-button" id="save-keys" type="submit">⛨ Save locally</button></div>
+  </form>
+
+  <section class="safety-band"><span>!</span><div><b>Use keys with minimum permissions.</b><p>Do not publish <code>.env</code>, screenshots containing keys, or terminal output that reveals them. Restart is not required after saving.</p></div></section>
+  <footer><span>Security Studio / local settings</span><a href="/">Return to tool arena</a></footer>
+</main>
+<script src="/settings.js"></script>
+</body>
+</html>

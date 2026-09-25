@@ -29,10 +29,10 @@ BANNER = r"""
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         prog="securitysuite",
-    description="Testing System: YARA-backed SOC detection with a live dashboard.",
+    description="Security Studio: YARA-backed SOC detection with a live dashboard.",
     )
     parser.add_argument("--host", help="bind address (default 127.0.0.1)")
-    parser.add_argument("--port", type=int, help="dashboard port (default 8787)")
+    parser.add_argument("--port", type=int, help="dashboard port (default 8900)")
     parser.add_argument("--watch", action="append", metavar="DIR",
                         help="directory to monitor (repeatable, replaces config)")
     parser.add_argument("--rules", metavar="DIR", help="rules directory")
