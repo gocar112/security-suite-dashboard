@@ -1,4 +1,4 @@
-"""Summarise local Security Suite state into a small Markdown report."""
+"""Summarise local Security Studio state into a small Markdown report."""
 from __future__ import annotations
 
 import argparse

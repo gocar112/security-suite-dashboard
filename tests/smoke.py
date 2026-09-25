@@ -1,4 +1,4 @@
-"""CI smoke tests for the Security Suite.
+"""CI smoke tests for Security Studio.
 
 These deliberately avoid live network calls and local OS auth logs. They verify
 that the core detector, generated rules, IOC extraction and destructive

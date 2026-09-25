@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 
-USER_AGENT = "security-studio/2.0 (+https://github.com/gocar112/security-suite-dashboard)"
+USER_AGENT = "security-studio/2.0 (+https://github.com/gocar112/Security-Studio)"
 
 _ctx_lock = threading.Lock()
 _ctx: ssl.SSLContext | None = None

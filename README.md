@@ -24,14 +24,14 @@ browser dashboard.
 
 | Book | Use it for |
 | --- | --- |
-| [Security Studio Operator Guide](book/Security-Suite-Operator-Guide.md) | Running the console, investigating findings, and using guarded remediation. |
+| [Security Studio Operator Guide](book/Security-Studio-Operator-Guide.md) | Running the console, investigating findings, and using guarded remediation. |
 | [Home SOC Defense Guide](book/Home-SOC-Defense-Guide.md) | Building a practical layered security system for home users. |
 | [Read-Only Briefing Guide](book/Security-Studio-Read-Only-Briefing.md) | Sharing local security visibility without granting control access. |
 | [Detection Engineering in Practice](book/Detection-Engineering-in-Practice.pdf) | A printable field guide in PDF format. |
 
 ## Quick Links
 
-- Operator guide: [book/Security-Suite-Operator-Guide.md](book/Security-Suite-Operator-Guide.md)
+- Operator guide: [book/Security-Studio-Operator-Guide.md](book/Security-Studio-Operator-Guide.md)
 - Home SOC defense book: [book/Home-SOC-Defense-Guide.md](book/Home-SOC-Defense-Guide.md)
 - Home security quickstart: [docs/Home-User-Security-System-Quickstart.md](docs/Home-User-Security-System-Quickstart.md)
 - Detection engineering field guide: [book/Detection-Engineering-in-Practice.pdf](book/Detection-Engineering-in-Practice.pdf)
@@ -391,7 +391,7 @@ nvds/                          local NVD cache
 Use the README for setup and release checks. Use the operator guide for daily
 workflow:
 
-- [Security Studio Operator Guide](book/Security-Suite-Operator-Guide.md)
+- [Security Studio Operator Guide](book/Security-Studio-Operator-Guide.md)
 - [Security Studio Read-Only Briefing Guide](book/Security-Studio-Read-Only-Briefing.md)
 - [Home SOC Defense Guide](book/Home-SOC-Defense-Guide.md)
 - [Home User Security System Quickstart](docs/Home-User-Security-System-Quickstart.md)
