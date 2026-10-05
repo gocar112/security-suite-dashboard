@@ -7,6 +7,7 @@ authentication telemetry from the same time window.
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -225,16 +226,19 @@ class Monitor(threading.Thread):
                 auto = self.remediator.consider_auto(stored)
                 if auto and auto.get("ok"):
                     print("[!] AUTO-REMEDIATE " + str(auto.get("outcome"))
-                          + " " + str(stored.get("file_path")))
+                          + " " + str(stored.get("file_path")),
+                          file=sys.stderr)
             except Exception as exc:
-                print("[-] Auto-remediation failed: " + str(exc))
+                print("[-] Auto-remediation failed: " + str(exc),
+                      file=sys.stderr)
         print(
             "[!] ALERT "
             + str(stored.get("severity", "?")).upper()
             + " "
             + ", ".join(stored["rule_names"])
             + " in "
-            + result["file_path"]
+            + result["file_path"],
+            file=sys.stderr,
         )
         return stored
 

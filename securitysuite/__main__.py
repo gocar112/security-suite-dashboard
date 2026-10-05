@@ -23,6 +23,19 @@ from .virustotal import VtClient
 from .watcher import Monitor
 from . import __version__
 
+def status(message: str = "") -> None:
+    """Diagnostics go to stderr so --scan can be piped.
+
+    --scan advertises "print JSON, exit", but the banner and the status
+    lines shared stdout with it, so the output could not be parsed:
+    `run.py --scan x | jq` choked on the ASCII art. Data on stdout,
+    everything else on stderr, is the convention that makes the
+    documented behaviour true - and in dashboard mode the operator sees
+    no difference, because stderr is still the terminal.
+    """
+    print(message, file=sys.stderr)
+
+
 BANNER = r"""
   ___  ___  ___ _   _ ___ ___ _______   __  ___ _   _ ___ _____ ___
  / __|| __|/ __| | | | _ \_ _|_   _\ \ / / / __| | | |_ _|_   _| __|
@@ -103,28 +116,28 @@ def main(argv=None) -> int:
     cfg, engine, store, telemetry, monitor, nvd, osv, vt, remediator, guidance = build(args)
 
     info = engine.info()
-    print(BANNER)
-    print("[*] Rules      : " + str(info["rule_count"]) + " loaded from " + info["rules_dir"]
+    status(BANNER)
+    status("[*] Rules      : " + str(info["rule_count"]) + " loaded from " + info["rules_dir"]
           + (" (FALLBACK RULE ONLY)" if info["using_fallback"] else ""))
     for err in info["load_errors"]:
-        print("[!] Rule error : " + err["file"] + " -> " + err["error"])
+        status("[!] Rule error : " + err["file"] + " -> " + err["error"])
     telemetry_state = telemetry.recent()
-    print("[*] Telemetry  : " + telemetry_state["source"] + " -> "
+    status("[*] Telemetry  : " + telemetry_state["source"] + " -> "
           + telemetry_state["status"]
           + (" (" + telemetry_state.get("detail", "") + ")"
              if telemetry_state.get("detail") else ""))
 
     nvd_state = nvd.status()
-    print("[*] NVD        : " + str(nvd_state.get("cached", 0)) + " CVEs cached, "
+    status("[*] NVD        : " + str(nvd_state.get("cached", 0)) + " CVEs cached, "
           + nvd_state["rate_limit"] + ", tls via " + nvd_state["tls_bundle"]
           + (" (last sync " + nvd_state["last_sync"] + ")" if nvd_state.get("last_sync") else ""))
 
     if cfg.auto_remediate:
-        print("[!] AUTO-REMEDIATE ARMED: " + cfg.auto_remediate_action
+        status("[!] AUTO-REMEDIATE ARMED: " + cfg.auto_remediate_action
               + " at severity " + cfg.auto_remediate_severity
               + " - files will be acted on without confirmation")
     else:
-        print("[*] Remediate  : manual only (auto-remediate off)")
+        status("[*] Remediate  : manual only (auto-remediate off)")
 
     if args.scan:
         result = monitor.scan_path(args.scan)
@@ -135,13 +148,13 @@ def main(argv=None) -> int:
     if not args.headless and not (args.watch or args.rules or args.scan_existing):
         existing = running_instance(cfg, ports)
         if existing:
-            print("[*] Dashboard already running: " + existing)
+            status("[*] Dashboard already running: " + existing)
             if not args.no_browser:
                 webbrowser.open(existing)
             return 0
     monitor.start()
-    print("[*] Watching   : " + ", ".join(cfg.watch_paths))
-    print("[*] Findings   : " + cfg.findings_log)
+    status("[*] Watching   : " + ", ".join(cfg.watch_paths))
+    status("[*] Findings   : " + cfg.findings_log)
 
     httpd = None
     if not args.headless:
@@ -158,23 +171,23 @@ def main(argv=None) -> int:
             except OSError as exc:
                 bind_error = exc
         if httpd is None:
-            print("[-] Could not start dashboard: " + str(bind_error))
+            status("[-] Could not start dashboard: " + str(bind_error))
             monitor.stop()
             return 1
         url = "http://" + cfg.host + ":" + str(cfg.port)
-        print("[*] Dashboard  : " + url)
+        status("[*] Dashboard  : " + url)
         if not args.no_browser:
             try:
                 webbrowser.open(url)
             except Exception:
                 pass
 
-    print("[*] Ctrl-C to stop.\n")
+    status("[*] Ctrl-C to stop.\n")
     try:
         while True:
             time.sleep(0.5)
     except KeyboardInterrupt:
-        print("\n[*] Shutting down...")
+        status("\n[*] Shutting down...")
     finally:
         monitor.stop()
         if httpd is not None:

@@ -3,7 +3,16 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { chromium } = require(process.env.SUITE_PLAYWRIGHT || "playwright");
+// Playwright is optional. Without it this check skips rather than failing
+// the build with a MODULE_NOT_FOUND stack trace.
+let chromium;
+try {
+  ({ chromium } = require(process.env.SUITE_PLAYWRIGHT || "playwright"));
+} catch (err) {
+  console.log("check_ui: playwright not installed - skipping browser QA.");
+  console.log("  npm install -D playwright && npx playwright install chromium");
+  process.exit(0);
+}
 const url = process.env.SUITE_URL || "http://127.0.0.1:8787";
 const output = path.resolve(__dirname, "../docs/images");
 
