@@ -1,5 +1,12 @@
 # Security Suite
 
+> **Canonical repository.** This is where the work happens. A read-only mirror
+> lives at [`soc-yara-scanner`](https://github.com/gocar112/soc-yara-scanner) —
+> the repo this project started in as a single file, which still carries the
+> original `YARA_scanning.py` and installers. Refresh it with
+> `python tools/sync_mirror.py`; anything committed there is overwritten.
+
+
 <p align="center">
   <img src="assets/securitysuite.png" alt="Security Suite logo" width="112">
 </p>
