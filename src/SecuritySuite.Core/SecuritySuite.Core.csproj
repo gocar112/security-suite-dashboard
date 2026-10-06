@@ -4,6 +4,11 @@
     <AssemblyName>SecuritySuite.Core</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Internal helpers that exist to be tested directly: parsers and path
+         canonicalisation whose edge cases matter more than their API shape. -->
+    <InternalsVisibleTo Include="SecuritySuite.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.O365.Security.Native.libyara.NET.Core" Version="4.5.5" />
     <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.0" />
   </ItemGroup>

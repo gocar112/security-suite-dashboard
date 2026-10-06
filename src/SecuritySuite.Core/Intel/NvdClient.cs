@@ -88,6 +88,21 @@ public sealed class NvdClient
             BaseUrl + "?" + SuiteHttp.Query(parameters), Headers(), _timeout, token).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Issue an arbitrary CVE-API query, rate-limited and authenticated.
+    /// </summary>
+    /// <remarks>
+    /// Exists for the rule generator, which needs query shapes this client does
+    /// not otherwise expose (<c>cvssV3Severity</c>, <c>pubStartDate</c>) and
+    /// needs the raw records rather than the flattened <see cref="CveRecord"/>,
+    /// because it reads the CPE configuration tree. Public rather than letting
+    /// the generator reach into a private member, so the rate limiter and the
+    /// API key still apply.
+    /// </remarks>
+    public Task<JsonDocument> RawQueryAsync(IEnumerable<KeyValuePair<string, object?>> parameters,
+                                            CancellationToken token = default) =>
+        GetAsync(parameters, token);
+
     /// <summary>NVD wants ISO-8601 with milliseconds and no timezone suffix.</summary>
     private static string Stamp(DateTimeOffset when) =>
         when.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.000");

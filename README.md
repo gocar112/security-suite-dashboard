@@ -4,7 +4,7 @@
 > lives at [`soc-yara-scanner`](https://github.com/gocar112/soc-yara-scanner) —
 > the repo this project started in as a single file, which still carries the
 > original `YARA_scanning.py` and installers. Refresh it with
-> `python tools/sync_mirror.py`; anything committed there is overwritten.
+> `suite-tools sync-mirror`; anything committed there is overwritten.
 
 
 <p align="center">
@@ -28,6 +28,14 @@ This is a defensive workbench that supplements installed endpoint protection.
 It is not NSA affiliated or certified, and a low alert count does not establish
 that a computer or network is safe.
 
+> **Windows x64 or ARM64 only.** The suite is .NET 10 and binds YARA through
+> Microsoft's `libyara.NET`, a C++/CLI mixed-mode assembly: it ships `win-x64`
+> and `win-arm64` runtime assets and nothing else, and a mixed-mode image cannot
+> load as AnyCPU. Version 1.x ran on Linux and macOS as well; 2.0 does not. The
+> scanner sits behind `IScanBackend`, so a P/Invoke or CLI-shelling backend can
+> restore those platforms without touching the monitor, the store, the HTTP
+> layer or the remediation rails.
+
 ## Quick Links
 
 - Operator guide: [book/Security-Suite-Operator-Guide.md](book/Security-Suite-Operator-Guide.md)
@@ -42,7 +50,7 @@ that a computer or network is safe.
 | Capability | What it does |
 | --- | --- |
 | Detect | Scans files with 1,004 YARA rules across malware, web shell, ransomware, credential theft, C2, supply-chain, Linux, Windows, and vulnerable-component namespaces. |
-| Correlate | Pulls nearby failed-logon telemetry from Windows Security log, macOS unified log, Linux auth logs, or journald. |
+| Correlate | Pulls nearby failed-logon telemetry from the Windows Security event log, falling back to a syslog-format auth log when one is present. Reports which source answered, so `quiet` never looks like `blind`. |
 | Pivot | Extracts URLs, domains, IPs, wallets, CVEs, hashes, registry keys, and file paths; dashboard values are defanged. |
 | Enrich | Uses NVD, OSV, CISA KEV, and optional VirusTotal hash lookups for context. |
 | Shield | Shows local AV, IDS, IPS, Bitdefender-ready, NVD, and CISA KEV defensive layers. |
@@ -57,7 +65,7 @@ that a computer or network is safe.
 ## Quick Start
 
 ```powershell
-python run.py
+dotnet run --project src/SecuritySuite.Cli
 ```
 
 Then open:
@@ -66,39 +74,49 @@ Then open:
 http://127.0.0.1:8787
 ```
 
-The server is built on Python's standard `http.server`, and the dashboard is
-plain HTML/CSS/JS. There is no frontend build step.
-If the default port is occupied, the launcher tries the next nine ports. It
-reuses a running console only when its version and workspace match. An explicit
-`--port` does not fall back. Use the URL printed by the launcher.
+The server is built on `HttpListener` from the base class library, and the
+dashboard is plain HTML/CSS/JS. There is no frontend build step and no web
+framework: the only package the suite depends on is the YARA binding.
 
-Fresh machine setup:
+If the default port is occupied, the launcher tries the next nine ports. It
+reuses a running console only when its version *and* its findings log match, so
+two instances never interleave writes to the same NDJSON. An explicit `--port`
+does not fall back. Use the URL printed by the launcher.
+
+Build a standalone executable:
 
 ```powershell
-pip install -r requirements.txt
-python run.py
+dotnet publish src/SecuritySuite.Cli -c Release
 ```
+
+That produces `securitysuite.exe`, which is what the desktop shortcut points at.
 
 Recommended verification before release:
 
 ```powershell
-python -m compileall securitysuite tools tests
+dotnet build --configuration Release
+dotnet test --configuration Release
 node --check web\app.js
 node --check web\console.js
-python -m unittest discover -s tests -p 'test_*.py' -v
-python tests\smoke.py
-python tools\summarize_database.py --output docs\database-summary.md
+dotnet run --project src/SecuritySuite.Tools -- summarize-database --output docs\database-summary.md
 ```
+
+Warnings are errors in `Directory.Build.props`, so a clean build also means the
+nullable and analyzer rules the code is written against are satisfied.
 
 ## Requirements
 
-| Package | Status | Needed for |
+| Requirement | Status | Needed for |
 | --- | --- | --- |
-| `yara-python` | Required | YARA compile and scan engine |
-| `certifi` | Recommended | Current CA bundle for NVD TLS requests |
-| `pywin32` | Optional, Windows only | Windows Security event-log telemetry |
+| .NET 10 SDK | Required to build | Everything. The runtime alone is enough to run a published build. |
+| `Microsoft.O365.Security.Native.libyara.NET.Core` 4.5.5 | Required | YARA compile and scan engine. Restored by NuGet, and the native libyara ships inside it, so there is nothing to install separately. |
+| Windows x64 or ARM64 | Required | The YARA binding is C++/CLI. See the platform note above. |
+| Administrator | Optional | Windows Security event-log telemetry. Without it the suite reports `denied` rather than an empty result. |
+| Node | Optional | `node --check` on the dashboard scripts, and the Playwright UI check in `tools/check_ui.cjs`. |
 
-Python 3.10 or newer is recommended.
+Nothing here needs a Python interpreter. Version 1.x did; 2.0 is .NET end to end.
+TLS uses the Windows certificate store directly, so the CA-bundle workaround that
+1.x needed is gone.
 
 ## Workspace Tabs
 
@@ -158,8 +176,8 @@ implemented. Keep your installed antivirus enabled.
 ## Repository Security
 
 [SECURITY.md](SECURITY.md) documents reporting and deployment boundaries.
-Dependabot configuration checks Python and Actions dependencies weekly; CodeQL
-analyzes Python and JavaScript on pushes, pull requests and its weekly schedule.
+Dependabot configuration checks NuGet and Actions dependencies weekly; CodeQL
+analyzes C# and JavaScript on pushes, pull requests and its weekly schedule.
 CI runs the boundary and smoke checks on Windows, Linux and macOS. These checks
 do not certify malware-detection accuracy or test live household devices.
 
@@ -175,7 +193,7 @@ Keep `.env`, runtime logs, device inventories and quarantine contents out of git
 ### 1. Start The Console
 
 ```powershell
-python run.py
+securitysuite
 ```
 
 The console prints the loaded rule count, watched folders, telemetry source, and
@@ -311,21 +329,28 @@ data/log-backups/
 
 ## Launcher And Startup
 
-Create a quiet desktop launcher:
+Create a desktop launcher:
 
 ```powershell
-python install_shortcut.py
+securitysuite --install-shortcut
 ```
 
 Start Security Suite automatically when you sign in:
 
 ```powershell
-python install_shortcut.py --startup
+securitysuite --install-shortcut --startup
 ```
 
-Windows shortcuts use `pythonw.exe` when it is available, which avoids the black
-PowerShell/console window. Linux desktop entries use `Terminal=false`, and macOS
-gets a quiet `.app` bundle.
+Remove either again with `--remove-shortcut`, with `--startup` to pick which one.
+
+The shortcut points at the published `securitysuite.exe` and passes
+`--no-browser`, so signing in does not open a tab. Nothing is installed
+system-wide and nothing needs elevation: the `.lnk` goes in the per-user Desktop
+or Startup folder. Shortcuts are created through the shell's own `IShellLink`
+interface, so no child process is spawned to write one.
+
+Run it from the build output before publishing, if you prefer:
+`dotnet run --project src/SecuritySuite.Cli -- --install-shortcut`.
 
 ## Samples
 
@@ -359,7 +384,7 @@ The source lattice separates live adapters from reference links.
 Summarize the local database:
 
 ```powershell
-python tools\summarize_database.py
+suite-tools summarize-database
 ```
 
 Sync a trailing NVD window while the server is running:
@@ -371,18 +396,39 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/api/nvd/sync -ContentT
 ## CLI
 
 ```powershell
-python run.py
-python run.py --watch D:\ftp --watch E:\inbox
-python run.py --port 9000 --no-browser
-python run.py --scan .\uploads
-python run.py --headless
-python run.py --scan-existing
+securitysuite                                     # dashboard + monitor
+securitysuite --watch D:\ftp --watch E:\inbox     # replaces the configured paths
+securitysuite --port 9000 --no-browser
+securitysuite --scan .\uploads                    # scan, print JSON, exit
+securitysuite --headless                          # monitor only, no dashboard
+securitysuite --scan-existing                     # also scan what is already there
+securitysuite --install-shortcut [--startup]
+securitysuite --help
+```
+
+Diagnostics go to stderr and data to stdout, so `--scan` is pipeable:
+
+```powershell
+securitysuite --scan .\uploads > report.json
+```
+
+Maintenance commands live in a separate executable, so nobody running a detector
+has a repository-mirroring command one typo away:
+
+```powershell
+suite-tools generate-rules --limit 1000 --min-score 9 --dry-run
+suite-tools summarize-database --output docs\database-summary.md
+suite-tools sync-mirror --dry-run
 ```
 
 ## Configuration
 
-Defaults live in [securitysuite/config.py](securitysuite/config.py). To override
-them, create `config.json` in the project root.
+Defaults live in
+[src/SecuritySuite.Core/Configuration/SuiteConfig.cs](src/SecuritySuite.Core/Configuration/SuiteConfig.cs).
+To override them, create `config.json` in the project root. Keys are snake_case,
+so a `config.json` written by 1.x still loads unchanged; an unrecognised key is
+named at startup rather than ignored silently, and credentials in `config.json`
+are refused with a note to move them to `.env`.
 
 ```json
 {
@@ -443,9 +489,13 @@ All endpoints are intended for localhost use. The server rejects non-loopback
 ## Project Layout
 
 ```text
-run.py                         launcher
+SecuritySuite.slnx             solution
+Directory.Build.props          shared build settings (net10.0-windows, x64, warnings as errors)
 config.json                    optional local overrides
-securitysuite/                 scanner, store, server, APIs
+src/SecuritySuite.Core/        scanner, store, server, adapters, remediation rails
+src/SecuritySuite.Cli/         securitysuite.exe - monitor, dashboard, --scan, shortcuts
+src/SecuritySuite.Tools/       suite-tools.exe - rule generation, summaries, mirror sync
+tests/SecuritySuite.Tests/     245 tests (xUnit)
 rules/                         YARA rules
 rules/generated/               generated vulnerable-component rules
 samples/                       harmless test files
@@ -480,7 +530,33 @@ workflow:
   issues, README files, or chat.
 - This client never uploads files to VirusTotal. Hash reputation is lookup-only.
 - Remediation is manual by default. Leave auto-remediation off until rules are
-  tested against your own data.
+  tested against your own data, and note that the auto-rule can only ever
+  quarantine: an unattended delete is refused however it is configured.
+- The dashboard has no CSRF token. It relies on loopback binding, a `Host`
+  header check, and requiring `Content-Type: application/json` on every write,
+  which forces a preflight this server never answers.
+- `suite-tools sync-mirror` exports with `git archive HEAD`, so only committed,
+  tracked files can reach the mirror. An uncommitted `.env`, a cache directory
+  or a quarantined file cannot leak through it.
+
+## What Changed In 2.0
+
+Version 2.0 is a full rewrite from Python to C#. Behaviour is preserved except
+where noted; these are the differences worth knowing about.
+
+| Area | 1.x (Python) | 2.0 (C#) |
+| --- | --- | --- |
+| Platform | Windows, Linux, macOS | **Windows x64/ARM64 only** — forced by the C++/CLI YARA binding |
+| Runtime | Python 3.10+, `yara-python`, `certifi`, `pywin32` | .NET 10, one NuGet package |
+| Scan timeout | `timeout=60` per scan | **Not available** — `libyara.NET` exposes only `ScanFlags.None/Fast`, so exposure is bounded by `max_file_mb` instead |
+| Rule metadata | Parsed out of rule source text, because yara-python has no introspection | Real introspection via `Rules.GetRules()` |
+| Match attribution | YARA namespaces, one per rule file | A rule-name to file map built while each file is validated. Same answer, different route — `libyara.NET` has no namespace parameter |
+| Telemetry on Windows | Backwards scan of up to 4,000 event records, needed optional `pywin32` | `EventLogQuery` with an XPath filter, so the log engine does the filtering; no optional dependency |
+| Host discovery | Shelled out to `ping`, then re-parsed its output because Windows exits 0 for a destination-unreachable reply | `System.Net.NetworkInformation.Ping`, where `IPStatus` is unambiguous |
+| IOC CSV export | Header and value lists written out twice, so a new field silently failed to export | Columns derived from the model |
+| NVD status | Cached sync index merged into the live payload, which let a stale `api_key: false` report a configured key as absent | Sync index nested under `sync`, making that class of bug impossible |
+| Playbook validation | Hand-written JSON Schema validator | Typed model with `JsonUnmappedMemberHandling.Disallow`; `web/playbook.schema.json` remains the contract |
+| Tests | 55 | 245 |
 
 ## What Changed From `YARA_scanning.py`
 

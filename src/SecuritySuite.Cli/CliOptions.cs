@@ -21,6 +21,15 @@ internal sealed class CliOptions
     public bool ShowHelp { get; private set; }
     public bool ShowVersion { get; private set; }
 
+    /// <summary>Create the desktop (or startup) shortcut and exit.</summary>
+    public bool InstallShortcut { get; private set; }
+
+    /// <summary>Remove the shortcut and exit.</summary>
+    public bool RemoveShortcut { get; private set; }
+
+    /// <summary>Act on the Startup folder rather than the Desktop.</summary>
+    public bool Startup { get; private set; }
+
     public const string Usage = """
         securitysuite - YARA-backed SOC detection suite with a live dashboard
 
@@ -36,6 +45,12 @@ internal sealed class CliOptions
           --headless          monitor only, no dashboard server
           --no-browser        do not open a browser window
           --scan-existing     scan files already present at startup
+
+          --install-shortcut  create a desktop shortcut and exit
+          --remove-shortcut   remove the shortcut and exit
+          --startup           with the two above, act on the Startup folder
+                              instead, so the suite runs at sign-in
+
           -h, --help          show this help
           -v, --version       show the version
 
@@ -70,6 +85,18 @@ internal sealed class CliOptions
 
                 case "--scan-existing":
                     options.ScanExisting = true;
+                    break;
+
+                case "--install-shortcut":
+                    options.InstallShortcut = true;
+                    break;
+
+                case "--remove-shortcut":
+                    options.RemoveShortcut = true;
+                    break;
+
+                case "--startup":
+                    options.Startup = true;
                     break;
 
                 case "--host":

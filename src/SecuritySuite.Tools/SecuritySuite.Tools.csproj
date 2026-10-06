@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SecuritySuite.Tools</RootNamespace>
+    <AssemblyName>suite-tools</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../SecuritySuite.Core/SecuritySuite.Core.csproj" />
+  </ItemGroup>
+</Project>

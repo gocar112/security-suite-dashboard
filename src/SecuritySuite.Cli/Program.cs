@@ -70,6 +70,7 @@ internal static class Program
             Console.WriteLine("securitysuite " + RouteTableVersion);
             return 0;
         }
+        if (args.InstallShortcut || args.RemoveShortcut) return Shortcut(args);
 
         var cfg = BuildConfig(args);
 
@@ -184,6 +185,42 @@ internal static class Program
     }
 
     private static string RouteTableVersion => "2.0.0";
+
+    /// <summary>Create or remove the desktop or startup shortcut, then exit.</summary>
+    private static int Shortcut(CliOptions args)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Status("[-] Shortcuts are Windows-only, as is the YARA binding this suite uses.");
+            return 1;
+        }
+
+        var where = args.Startup ? "startup" : "desktop";
+        try
+        {
+            if (args.RemoveShortcut)
+            {
+                var existed = Platform.DesktopLauncher.Remove(args.Startup);
+                Status(existed
+                    ? "[*] Removed the " + where + " shortcut"
+                    : "[*] No " + where + " shortcut was present");
+                return 0;
+            }
+
+            var target = Platform.DesktopLauncher.Install(args.Startup);
+            Status("[*] Created   : " + target);
+            Status("[*] Runs      : " + Platform.DesktopLauncher.ExecutablePath + " --no-browser");
+            Status("[*] From      : " + SuitePaths.Root);
+            Status("[*] Icon      : " + Platform.DesktopLauncher.IconPath);
+            return 0;
+        }
+        catch (Exception exc) when (exc is IOException or UnauthorizedAccessException
+                                        or System.Runtime.InteropServices.COMException)
+        {
+            Status("[-] Could not update the " + where + " shortcut: " + exc.Message);
+            return 1;
+        }
+    }
 
     private static SuiteConfig BuildConfig(CliOptions args)
     {

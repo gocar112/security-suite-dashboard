@@ -16,8 +16,17 @@ public static class SuitePaths
 {
     private static readonly Lazy<string> RootLazy = new(Discover, isThreadSafe: true);
 
-    /// <summary>Files that identify the project root and not a build output.</summary>
-    private static readonly string[] Markers = ["SecuritySuite.sln", "rules", "web"];
+    /// <summary>
+    /// Files that identify the project root and not a build output.
+    /// </summary>
+    /// <remarks>
+    /// The solution file is listed under both names because the .NET 10 SDK
+    /// migrates .sln to .slnx, and a root detector that silently stopped
+    /// matching after an SDK upgrade would send every path to the binary
+    /// directory.
+    /// </remarks>
+    private static readonly string[] Markers =
+        ["SecuritySuite.slnx", "SecuritySuite.sln", "rules", "web"];
 
     public static string Root => RootLazy.Value;
 

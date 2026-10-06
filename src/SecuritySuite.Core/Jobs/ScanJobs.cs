@@ -284,6 +284,17 @@ public sealed class ScanJobs(DirectoryMonitor monitor)
         var (excludedFiles, excludedDirs) = Exclusions();
         var root = job.Path;
 
+        // A root that is not there at all is a failed scan, not a successful
+        // empty one. Without this the walk finds nothing to enumerate, falls
+        // straight out of the loop and reports "completed", so a typo in a scan
+        // path looks like a clean result.
+        if (!Directory.Exists(root) && !File.Exists(root))
+        {
+            Skip(job, "unavailable");
+            lock (_gate) job.Error = root + " does not exist";
+            throw new DirectoryNotFoundException(job.Error);
+        }
+
         // Check the ancestors too: a caller can ask for link/child.txt directly,
         // where the link is above the requested path rather than at it.
         for (var parent = Directory.GetParent(root); parent is not null; parent = parent.Parent)

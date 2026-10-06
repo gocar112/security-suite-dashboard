@@ -1,0 +1,64 @@
+name: Security Suite checks
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test
+    # Windows only, and not by preference. The YARA binding
+    # (Microsoft.O365.Security.Native.libyara.NET.Core) is a C++/CLI
+    # mixed-mode assembly that ships win-x64 and win-arm64 runtime assets
+    # and nothing else, so the suite cannot build or run elsewhere.
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        # Warnings are errors in Directory.Build.props, so this also enforces
+        # the nullable and analyzer rules the code is written against.
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        # The symlink-escape cases skip without Developer Mode rather than
+        # passing without exercising anything; the summary below shows the
+        # skip count so that stays visible.
+        run: dotnet test --no-build --configuration Release --logger "console;verbosity=normal"
+
+      - name: Validate dashboard JavaScript
+        run: |
+          node --check web/app.js
+          node --check web/console.js
+
+      - name: Generate database summary
+        run: >
+          dotnet run --project src/SecuritySuite.Tools --no-build
+          --configuration Release -- summarize-database --output docs/database-summary.md
+
+      - name: Verify the scanner loads every rule
+        # A rule file that stops compiling would otherwise only show up at
+        # runtime, as a quietly smaller ruleset.
+        shell: pwsh
+        run: |
+          $exe = "src/SecuritySuite.Cli/bin/x64/Release/net10.0-windows/win-x64/securitysuite.exe"
+          $json = & $exe --scan samples 2>$null | ConvertFrom-Json
+          if ($json.state -ne "completed") { throw "scan did not complete: $($json.state)" }
+          if ($json.errors -ne 0) { throw "scan reported $($json.errors) error(s)" }
+          Write-Host "scanned $($json.scanned) file(s), $($json.matches) match(es)"
