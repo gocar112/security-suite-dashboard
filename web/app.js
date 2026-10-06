@@ -239,11 +239,14 @@ function renderBreakdown(sev, total) {
   }).join("");
 }
 
+/* Rows are [{rule, count}]. They used to be positional [name, count] pairs,
+ * which is what Python's Counter.most_common produced; the named form is the
+ * API's shape now and reading it positionally silently threw. */
 function renderTopRules(rows) {
   const el = $("top-rules");
-  if (!rows.length) { el.innerHTML = '<span class="faint">No hits yet.</span>'; return; }
-  const max = rows[0][1] || 1;
-  el.innerHTML = rows.map(([name, count]) =>
+  if (!rows || !rows.length) { el.innerHTML = '<span class="faint">No hits yet.</span>'; return; }
+  const max = rows[0].count || 1;
+  el.innerHTML = rows.map(({ rule: name, count }) =>
     '<div class="row"><span class="name">' + esc(name) + '</span>' +
     '<span class="meta">' + count + ' hit' + (count === 1 ? "" : "s") + '</span></div>' +
     '<div class="track" style="height:4px;background:var(--panel-2);border-radius:3px;overflow:hidden">' +

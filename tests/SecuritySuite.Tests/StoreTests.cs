@@ -489,6 +489,29 @@ public sealed class StoreTests : IDisposable
         Assert.Equal(new RuleCount("Hot_Rule", 3), stats.TopRules[0]);
     }
 
+    /// <summary>
+    /// top_rules is a list of named objects, not positional pairs. It was
+    /// pairs under Python's Counter.most_common, and the dashboard read it
+    /// positionally; changing the shape without changing the reader threw on
+    /// every stats frame, which only showed once a rule had actually fired.
+    /// </summary>
+    [Fact]
+    public void Top_rules_are_named_objects_so_the_dashboard_can_read_them()
+    {
+        var store = New();
+        store.Add(new SuiteEvent
+        {
+            EventType = SuiteEvent.TypeMatch,
+            Matches = [new RuleMatch { Rule = "Noisy_Rule" }],
+        }, persist: false);
+
+        var json = JsonSerializer.Serialize(store.Stats(), SuiteJson.Options);
+
+        Assert.Contains("\"top_rules\":[{", json);
+        Assert.Contains("\"rule\":\"Noisy_Rule\"", json);
+        Assert.Contains("\"count\":1", json);
+    }
+
     [Fact]
     public void Timeline_buckets_recent_matches_and_ignores_old_ones()
     {

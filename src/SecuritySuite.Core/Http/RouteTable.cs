@@ -28,7 +28,7 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
     /// <summary>Static files the dashboard is allowed to request by name.</summary>
     private static readonly HashSet<string> StaticFiles = new(StringComparer.Ordinal)
     {
-        "app.js", "console.js", "lucide.js", "styles.css", "favicon.ico",
+        "app.js", "console.js", "views.js", "lucide.js", "styles.css", "favicon.ico",
         "playbook.schema.json",
     };
 

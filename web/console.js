@@ -9,7 +9,9 @@
     ['ids', 'IDS', 'radar'], ['response', 'IPS / Response', 'shield-alert'],
     ['inventory', 'Inventory', 'network'], ['playbooks', 'Playbooks', 'workflow'],
     ['analysis', 'Analysis Lab', 'flask-conical'], ['training', 'Training', 'users'],
-    ['integrations', 'Integrations', 'plug'], ['audit', 'Audit / Logs', 'scroll-text']
+    ['integrations', 'Integrations', 'plug'], ['audit', 'Audit / Logs', 'scroll-text'],
+    ['hunt', 'Hunt', 'search'], ['attack', 'ATT&CK', 'grid-3x3'],
+    ['graph', 'Graph', 'git-fork'], ['cases', 'Cases', 'folder-open']
   ];
   let active = 'overview';
   let busyPoll = false;
@@ -180,18 +182,103 @@
     '<div class="table-wrap"><table><thead><tr><th>Time</th><th>Event</th><th>Detail</th><th>Status</th></tr></thead><tbody id="audit-rows"></tbody></table></div>'));
   get('side-audit').innerHTML = panel('Recent response actions', '<div id="audit-actions"></div>');
 
+  /* The four views ported from the feature branches. Each renders into the
+   * containers the views array already created, so they are ordinary views
+   * rather than a second navigation system layered on top. */
+  const V = window.SuiteViews;
+  get('main-attack').innerHTML = V.attackMarkup();
+  get('main-hunt').innerHTML = V.huntMarkup();
+  get('side-hunt').innerHTML = V.huntSideMarkup();
+  get('main-graph').innerHTML = V.graphMarkup();
+  get('side-graph').innerHTML = V.graphSideMarkup();
+  get('main-cases').innerHTML = V.casesMarkup();
+  get('side-cases').innerHTML = V.casesSideMarkup();
+
+  async function runHunt(query) {
+    get('hunt-input').value = query;
+    try {
+      V.renderHunt(await api('/api/hunt?q=' + encodeURIComponent(query)));
+    } catch (error) {
+      /* A query that did not parse answers 400 carrying the parser's own
+       * message, which is the useful thing to show rather than "request
+       * failed". */
+      V.renderHunt({ error: error.message, fields: [] });
+    }
+  }
+  async function refreshSavedHunts() {
+    const data = await request('/api/hunt/saved');
+    V.renderSavedHunts(data.hunts, runHunt, async id => {
+      await post('/api/hunt/saved', { delete: id });
+      refreshSavedHunts().catch(() => {});
+    });
+  }
+  get('hunt-form').addEventListener('submit', event => {
+    event.preventDefault();
+    runHunt(get('hunt-input').value).catch(error => toast(error.message, true));
+  });
+  get('main-hunt').querySelectorAll('.hunt-example').forEach(button =>
+    button.addEventListener('click', () => runHunt(button.dataset.query).catch(() => {})));
+  get('hunt-save-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    try {
+      await post('/api/hunt/saved', { name: get('hunt-save-name').value, query: get('hunt-input').value });
+      get('hunt-save-name').value = '';
+      await refreshSavedHunts();
+      toast('Hunt saved');
+    } catch (error) { toast(error.message, true); }
+  });
+
+  const caseHandlers = {
+    open: async id => {
+      try { V.renderCaseDetail(await request('/api/cases/detail?id=' + encodeURIComponent(id)), caseHandlers); }
+      catch (error) { toast(error.message, true); }
+    },
+    status: async (id, status) => {
+      try { await post('/api/cases/update', { id, status }); await refreshCases(); await caseHandlers.open(id); }
+      catch (error) { toast(error.message, true); }
+    },
+    note: async (id, text) => {
+      if (!text.trim()) return;
+      try { await post('/api/cases/note', { id, text }); await caseHandlers.open(id); }
+      catch (error) { toast(error.message, true); }
+    },
+    unlink: async (id, findingId) => {
+      try { await post('/api/cases/link', { id, finding_ids: [findingId], detach: true }); await caseHandlers.open(id); }
+      catch (error) { toast(error.message, true); }
+    }
+  };
+  async function refreshCases() {
+    V.renderCases(await request('/api/cases?status=all'), caseHandlers);
+  }
+  get('case-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    try {
+      await post('/api/cases', {
+        title: get('case-title').value, owner: get('case-owner').value,
+        severity: get('case-severity').value
+      });
+      get('case-title').value = '';
+      await refreshCases();
+      toast('Case opened');
+    } catch (error) { toast(error.message, true); }
+  });
+
   const descriptions = {
     overview: 'Local detection and response activity', antivirus: 'File inspection and bounded scan jobs',
     ids: 'Network evidence and identity telemetry', response: 'File containment and reviewed policy',
     inventory: 'Explicit discovery on your private network', playbooks: 'Ordered response skills for stored detections',
     analysis: 'Static evidence inspection', training: 'Synthetic tabletop decisions on this device',
-    integrations: 'Registration, configuration and service health', audit: 'Recorded activity and response outcomes'
+    integrations: 'Registration, configuration and service health', audit: 'Recorded activity and response outcomes',
+    hunt: 'Field queries across stored detections', attack: 'MITRE ATT&CK coverage and observed techniques',
+    graph: 'Shared indicators, and the campaigns they reveal', cases: 'Investigations, evidence and incident reports'
   };
   function navigate(id) {
     if (!views.some(v => v[0] === id)) id = 'overview';
     active = id;
     views.forEach(([key]) => {
       get('view-' + key).hidden = key !== id;
+      /* The graph animates; stop it when the operator looks elsewhere. */
+      if (key === 'graph' && key !== id) V.stopGraph();
       get('tab-' + key).setAttribute('aria-selected', String(key === id));
       get('tab-' + key).tabIndex = key === id ? 0 : -1;
       const nav = document.querySelector('.console-nav [data-view="' + key + '"]');
@@ -574,6 +661,12 @@
           lastSensorUpdate = Date.now();
         }
       } else if (current === 'ids') { await ids(); renderTelemetry(await request('/api/telemetry')); }
+      else if (current === 'attack') { V.renderAttack(await request('/api/attack/coverage')); }
+      else if (current === 'graph') { V.renderGraph(await request('/api/graph')); }
+      else if (current === 'cases') { await refreshCases(); }
+      else if (current === 'hunt') {
+        if (!loaded.has('hunt')) { await refreshSavedHunts(); loaded.add('hunt'); }
+      }
       else if (current === 'response') { await workspace(); await loadRemediation(); }
       else if (current === 'analysis') await loadIocs();
       else if (current === 'inventory') await inventory();
