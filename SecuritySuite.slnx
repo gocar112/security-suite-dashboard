@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SecuritySuite.Cli/SecuritySuite.Cli.csproj">
+      <Platform Project="x64" />
+    </Project>
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="src/SecuritySuite.Core/SecuritySuite.Core.csproj" />
+    <Project Path="tests/SecuritySuite.Tests/SecuritySuite.Tests.csproj" />
+  </Folder>
+</Solution>

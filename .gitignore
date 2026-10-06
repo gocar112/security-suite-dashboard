@@ -27,3 +27,8 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# --- .NET build output ---
+bin/
+obj/
+*.user
