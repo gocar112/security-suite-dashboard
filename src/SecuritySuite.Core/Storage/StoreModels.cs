@@ -23,6 +23,11 @@ public sealed class ClearResult
     [JsonPropertyName("events")] public int Events { get; set; }
     [JsonPropertyName("triage")] public int Triage { get; set; }
 
+    /// <summary>Why a fail-closed clear request made no changes.</summary>
+    [JsonPropertyName("error")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Error { get; set; }
+
     /// <summary>Remediation audit records that survived the clear.</summary>
     [JsonPropertyName("audit_retained")] public int AuditRetained { get; set; }
 

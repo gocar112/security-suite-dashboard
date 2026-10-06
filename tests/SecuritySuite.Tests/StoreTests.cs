@@ -99,6 +99,226 @@ public sealed class StoreTests : IDisposable
         Assert.Single(New().Events(limit: 100));
     }
 
+    /// <summary>
+    /// The defect this guards against: retention was built from the in-memory
+    /// ring buffer, so a remediation record older than <c>HistoryLimit</c>
+    /// events was erased from the log by a "Clear lines" click — and the
+    /// result reported a falsely low <c>audit_retained</c> without complaint.
+    /// Retention now streams the log from disk.
+    /// </summary>
+    [Fact]
+    public void Clear_keeps_remediation_records_older_than_the_memory_window()
+    {
+        var store = New(historyLimit: 5);
+
+        // An audit record, then enough noise to push it out of the buffer.
+        var audit = store.Add(new SuiteEvent { EventType = SuiteEvent.TypeRemediation });
+        for (var i = 0; i < 40; i++)
+            store.Add(new SuiteEvent { EventType = SuiteEvent.TypeMatch, Severity = Severity.Low });
+
+        // It is genuinely out of memory by now...
+        Assert.DoesNotContain(store.Events(limit: 1000), e => e.Id == audit.Id);
+
+        var result = store.Clear();
+
+        // ...but it must survive the clear, because it is on disk.
+        Assert.True(result.Cleared);
+        Assert.Equal(1, result.AuditRetained);
+
+        var onDisk = File.ReadAllLines(store.Path);
+        Assert.Single(onDisk);
+        Assert.Contains(audit.Id, onDisk[0]);
+        Assert.Contains(SuiteEvent.TypeRemediation, onDisk[0]);
+    }
+
+    [Fact]
+    public void Clear_retains_every_audit_record_not_just_the_recent_ones()
+    {
+        var store = New(historyLimit: 5);
+
+        var ids = new List<string>();
+        for (var round = 0; round < 4; round++)
+        {
+            ids.Add(store.Add(new SuiteEvent { EventType = SuiteEvent.TypeRemediation }).Id);
+            for (var i = 0; i < 10; i++)
+                store.Add(new SuiteEvent { EventType = SuiteEvent.TypeMatch });
+        }
+
+        var result = store.Clear();
+
+        Assert.Equal(4, result.AuditRetained);
+        var text = File.ReadAllText(store.Path);
+        Assert.All(ids, id => Assert.Contains(id, text));
+    }
+
+    /// <summary>
+    /// A log that cannot be read is a log that cannot safely be rewritten, so
+    /// the clear aborts rather than truncating it.
+    /// </summary>
+    [Fact]
+    public void Clear_refuses_rather_than_truncating_an_unreadable_log()
+    {
+        var store = New();
+        store.Add(new SuiteEvent { EventType = SuiteEvent.TypeRemediation });
+        var before = File.ReadAllText(store.Path);
+
+        // Hold the log open for exclusive writing so the store cannot read it.
+        using (new FileStream(store.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            var result = store.Clear();
+
+            Assert.False(result.Cleared);
+            Assert.NotNull(result.Error);
+        }
+
+        Assert.Equal(before, File.ReadAllText(store.Path));
+    }
+
+    [Fact]
+    public void Clear_fails_closed_when_the_backup_cannot_be_created()
+    {
+        var store = New();
+        var finding = store.Add(new SuiteEvent { EventType = SuiteEvent.TypeMatch });
+        var before = File.ReadAllText(store.Path);
+
+        // A file where the backup directory must be makes directory creation fail.
+        File.WriteAllText(Path.Combine(_temp, "log-backups"), "blocked");
+
+        var result = store.Clear();
+
+        Assert.False(result.Cleared);
+        Assert.NotNull(result.Error);
+        Assert.Equal(before, File.ReadAllText(store.Path));
+        Assert.Contains(store.Events(), item => item.Id == finding.Id);
+    }
+
+    [Fact]
+    public void Clear_fails_closed_when_replacement_cannot_be_staged()
+    {
+        var store = New();
+        var finding = store.Add(new SuiteEvent { EventType = SuiteEvent.TypeMatch });
+        var before = File.ReadAllText(store.Path);
+
+        // A directory at the staging-file path makes File.WriteAllText fail.
+        Directory.CreateDirectory(store.Path + ".clearing");
+
+        var result = store.Clear();
+
+        Assert.False(result.Cleared);
+        Assert.NotNull(result.Error);
+        Assert.NotEqual("", result.BackupDir);
+        Assert.Equal(before, File.ReadAllText(store.Path));
+        Assert.Contains(store.Events(), item => item.Id == finding.Id);
+    }
+
+    /// <summary>
+    /// A finding that has scrolled out of the buffer is still a real finding,
+    /// and triage used to 404 on it.
+    /// </summary>
+    [Fact]
+    public void Triage_works_on_a_finding_outside_the_memory_window()
+    {
+        var store = New(historyLimit: 5);
+        var finding = store.Add(new SuiteEvent
+        {
+            EventType = SuiteEvent.TypeMatch,
+            Severity = Severity.High,
+            FilePath = "old.txt",
+        });
+        for (var i = 0; i < 40; i++)
+            store.Add(new SuiteEvent { EventType = SuiteEvent.TypeMatch });
+
+        Assert.DoesNotContain(store.Events(limit: 1000), e => e.Id == finding.Id);
+
+        var updated = store.SetStatus(finding.Id, "false_positive", "aged out but still triaged");
+
+        Assert.NotNull(updated);
+        Assert.Equal("false_positive", updated.Status);
+        Assert.True(updated.GetExtra<bool>("outside_memory_window"));
+    }
+
+    [Fact]
+    public void Triage_still_refuses_an_id_that_exists_nowhere()
+    {
+        var store = New(historyLimit: 5);
+        store.Add(new SuiteEvent { EventType = SuiteEvent.TypeMatch });
+
+        Assert.Null(store.SetStatus("0123456789ab", "resolved"));
+    }
+
+    /// <summary>
+    /// A random id per load meant triage state filed against an id-less log
+    /// line could never reattach, because the id it was filed under no longer
+    /// existed after a restart.
+    /// </summary>
+    [Fact]
+    public void Ids_for_idless_log_lines_are_stable_across_restarts()
+    {
+        var log = Path.Combine(_temp, "findings.ndjson");
+        File.WriteAllLines(log,
+        [
+            """{"event_type":"yara_match","severity":"high","file_name":"a.txt"}""",
+            """{"event_type":"yara_match","severity":"low","file_name":"b.txt"}""",
+        ]);
+
+        var first = New().Events(limit: 10).Select(e => e.Id).ToList();
+        var second = New().Events(limit: 10).Select(e => e.Id).ToList();
+
+        Assert.Equal(first, second);
+        Assert.All(first, id => Assert.Equal(12, id.Length));
+        Assert.Equal(2, first.Distinct().Count());
+
+        // And triage filed against that id survives a restart.
+        var store = New();
+        var target = store.Events(limit: 10).First(e => e.FileName == "a.txt");
+        store.SetStatus(target.Id, "acknowledged", "stable");
+
+        var reopened = New();
+        Assert.Equal("acknowledged",
+            reopened.Events(limit: 10).First(e => e.FileName == "a.txt").Status);
+    }
+
+    /// <summary>
+    /// A reader that falls behind must be told. Silently dropping its events
+    /// left the dashboard showing a live dot and a ticking uptime while
+    /// receiving no findings.
+    /// </summary>
+    [Fact]
+    public void A_subscriber_that_falls_behind_is_marked_overflowed()
+    {
+        var store = New();
+        var subscription = store.Subscribe();
+
+        Assert.False(subscription.Overflowed);
+
+        // The channel holds 256; push well past it without reading.
+        for (var i = 0; i < 400; i++)
+            store.Add(new SuiteEvent { EventType = SuiteEvent.TypeMatch }, persist: false);
+
+        Assert.True(subscription.Overflowed);
+
+        // The subscriber is kept, not silently removed, so the stream handler
+        // can report the overflow before closing.
+        Assert.Equal(1, store.SubscriberCount);
+        store.Unsubscribe(subscription);
+    }
+
+    [Fact]
+    public void A_subscriber_that_keeps_up_is_never_marked_overflowed()
+    {
+        var store = New();
+        var subscription = store.Subscribe();
+
+        for (var i = 0; i < 400; i++)
+        {
+            store.Add(new SuiteEvent { EventType = SuiteEvent.TypeMatch }, persist: false);
+            subscription.Reader.TryRead(out _);
+        }
+
+        Assert.False(subscription.Overflowed);
+        store.Unsubscribe(subscription);
+    }
+
     [Fact]
     public void Clear_always_backs_up_first()
     {
@@ -213,36 +433,37 @@ public sealed class StoreTests : IDisposable
     public void Subscribers_receive_added_and_broadcast_events()
     {
         var store = New();
-        var channel = store.Subscribe();
+        var subscription = store.Subscribe();
 
         store.Add(new SuiteEvent { EventType = SuiteEvent.TypeMatch }, persist: false);
         store.Broadcast("a notice");
 
-        Assert.True(channel.Reader.TryRead(out var first));
+        Assert.True(subscription.Reader.TryRead(out var first));
         Assert.Equal(SuiteEvent.TypeMatch, first!.EventType);
-        Assert.True(channel.Reader.TryRead(out var second));
+        Assert.True(subscription.Reader.TryRead(out var second));
         Assert.Equal("a notice", second!.Message);
 
-        store.Unsubscribe(channel);
+        store.Unsubscribe(subscription);
         Assert.Equal(0, store.SubscriberCount);
     }
 
     /// <summary>
-    /// A slow reader must lose events rather than block a scan. The Python
-    /// build dropped the whole subscriber instead, which silently killed the
-    /// stream for a client that had only paused.
+    /// A slow reader must never block a scan. It is kept and flagged, so the
+    /// stream handler can tell it that it fell behind; see
+    /// <see cref="A_subscriber_that_falls_behind_is_marked_overflowed"/>.
     /// </summary>
     [Fact]
-    public void A_full_subscriber_channel_drops_events_rather_than_blocking()
+    public void A_full_subscriber_never_blocks_the_writer()
     {
         var store = New();
-        var channel = store.Subscribe();
+        var subscription = store.Subscribe();
 
         for (var i = 0; i < 400; i++)
             store.Add(new SuiteEvent { EventType = SuiteEvent.TypeMatch }, persist: false);
 
         Assert.Equal(1, store.SubscriberCount);
-        Assert.True(channel.Reader.TryRead(out _));
+        Assert.True(subscription.Reader.TryRead(out _));
+        store.Unsubscribe(subscription);
     }
 
     [Fact]

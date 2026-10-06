@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using SecuritySuite.Configuration;
 using SecuritySuite.Intel;
 using SecuritySuite.Jobs;
 using SecuritySuite.Remediation;
@@ -331,6 +332,15 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
             default:
                 // Static assets by name only; never a path from the request.
                 var name = route.TrimStart('/');
+
+                // The icon lives in assets/, beside the desktop shortcut's copy.
+                // Serving it only from web/ meant /favicon.ico always 404'd and
+                // every dashboard load logged a missing-icon request.
+                if (name == "favicon.ico")
+                {
+                    await IconAsync(response, headOnly).ConfigureAwait(false);
+                    return;
+                }
                 if (StaticFiles.Contains(name))
                 {
                     await StaticAsync(response, name, headOnly).ConfigureAwait(false);
@@ -622,6 +632,27 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
         if (!headOnly) await response.OutputStream.WriteAsync(body).ConfigureAwait(false);
     }
 
+    /// <summary>Serve the application icon, wherever it actually lives.</summary>
+    private async Task IconAsync(HttpListenerResponse response, bool headOnly)
+    {
+        foreach (var candidate in (string[])
+                 [
+                     Path.Combine(webRoot, "favicon.ico"),
+                     Path.Combine(SuitePaths.Root, "assets", "securitysuite.ico"),
+                 ])
+        {
+            if (!File.Exists(candidate)) continue;
+
+            var body = await File.ReadAllBytesAsync(candidate).ConfigureAwait(false);
+            response.StatusCode = 200;
+            response.ContentType = "image/x-icon";
+            response.ContentLength64 = body.Length;
+            if (!headOnly) await response.OutputStream.WriteAsync(body).ConfigureAwait(false);
+            return;
+        }
+        await Json(response, new { error = "not found" }, 404).ConfigureAwait(false);
+    }
+
     private async Task SendTextAsync(HttpListenerResponse response, string content,
                                      string contentType, string filename)
     {
@@ -821,7 +852,7 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
     /// </remarks>
     private async Task StreamAsync(HttpListenerResponse response, CancellationToken token)
     {
-        var channel = ctx.Store.Subscribe();
+        var subscription = ctx.Store.Subscribe();
 
         response.StatusCode = 200;
         response.ContentType = "text/event-stream";
@@ -838,12 +869,26 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
             var nextStats = DateTimeOffset.UtcNow;
             while (!token.IsCancellationRequested)
             {
+                // Tell the client it fell behind, then close. Carrying on
+                // would keep sending stats frames to a dashboard that has
+                // silently missed findings, so it would look live while being
+                // wrong. EventSource reconnects onto a fresh subscription.
+                if (subscription.Overflowed)
+                {
+                    await SendEventAsync(stream, "overflow", new
+                    {
+                        message = "This stream fell behind and missed events; reconnecting.",
+                        server_time = EventStore.NowIso(),
+                    }).ConfigureAwait(false);
+                    return;
+                }
+
                 using var tick = CancellationTokenSource.CreateLinkedTokenSource(token);
                 tick.CancelAfter(TimeSpan.FromSeconds(1));
 
                 try
                 {
-                    var item = await channel.Reader.ReadAsync(tick.Token).ConfigureAwait(false);
+                    var item = await subscription.Reader.ReadAsync(tick.Token).ConfigureAwait(false);
                     await SendEventAsync(stream, "event", item).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (!token.IsCancellationRequested)
@@ -870,7 +915,7 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
         }
         finally
         {
-            ctx.Store.Unsubscribe(channel);
+            ctx.Store.Unsubscribe(subscription);
         }
     }
 

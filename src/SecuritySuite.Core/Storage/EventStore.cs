@@ -17,7 +17,7 @@ public sealed class EventStore
 {
     private readonly Lock _gate = new();
     private readonly Queue<SuiteEvent> _events;
-    private readonly List<Channel<SuiteEvent>> _subscribers = [];
+    private readonly List<Subscription> _subscribers = [];
     private readonly Dictionary<string, TriageState> _triage = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _counters = new(StringComparer.Ordinal);
     private readonly Stopwatch _uptime = Stopwatch.StartNew();
@@ -109,7 +109,7 @@ public sealed class EventStore
             catch (JsonException) { malformed++; continue; }
             if (parsed is null) continue;
 
-            if (string.IsNullOrEmpty(parsed.Id)) parsed.Id = NewId();
+            if (string.IsNullOrEmpty(parsed.Id)) parsed.Id = StableId(line);
             ApplyTriage(parsed);
             Append(parsed);
             Count(parsed);
@@ -117,6 +117,95 @@ public sealed class EventStore
         if (malformed > 0)
             _warn("[!] Skipped " + malformed + " malformed line(s) in the findings log");
     }
+
+    /// <summary>
+    /// Every remediation record in the log, however old.
+    /// </summary>
+    /// <remarks>
+    /// Streams the file rather than using the ring buffer, because the whole
+    /// point is to find the records the buffer has already forgotten. Throws on
+    /// an unreadable log so the caller can abort instead of rewriting a file it
+    /// could not read.
+    /// </remarks>
+    private List<SuiteEvent> RemediationRecordsOnDisk()
+    {
+        var kept = new List<SuiteEvent>();
+        if (!File.Exists(Path)) return kept;
+
+        using var reader = new StreamReader(
+            new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+
+        while (reader.ReadLine() is { } line)
+        {
+            if (line.Length == 0) continue;
+
+            // Cheap prefilter: parsing every line of a large log to find the
+            // few remediation records is the expensive way to do this.
+            if (!line.Contains(SuiteEvent.TypeRemediation, StringComparison.Ordinal)) continue;
+
+            SuiteEvent? parsed;
+            try { parsed = JsonSerializer.Deserialize<SuiteEvent>(line, SuiteJson.Options); }
+            catch (JsonException) { continue; }
+
+            if (parsed?.EventType == SuiteEvent.TypeRemediation)
+            {
+                if (string.IsNullOrEmpty(parsed.Id)) parsed.Id = StableId(line);
+                kept.Add(parsed);
+            }
+        }
+        return kept;
+    }
+
+    /// <summary>
+    /// Find one event anywhere in the log, including outside the memory window.
+    /// </summary>
+    /// <remarks>
+    /// Used by triage, which must not 404 on a finding simply because it has
+    /// scrolled out of the ring buffer. Returns null on an unreadable log,
+    /// because for this caller "cannot find it" and "cannot read" lead to the
+    /// same refusal.
+    /// </remarks>
+    private SuiteEvent? FindOnDisk(string eventId)
+    {
+        if (!File.Exists(Path) || eventId.Length == 0) return null;
+
+        try
+        {
+            using var reader = new StreamReader(
+                new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+
+            while (reader.ReadLine() is { } line)
+            {
+                if (line.Length == 0) continue;
+                if (!line.Contains(eventId, StringComparison.Ordinal)) continue;
+
+                SuiteEvent? parsed;
+                try { parsed = JsonSerializer.Deserialize<SuiteEvent>(line, SuiteJson.Options); }
+                catch (JsonException) { continue; }
+
+                if (parsed is not null && parsed.Id == eventId) return parsed;
+            }
+        }
+        catch (Exception exc) when (exc is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// A deterministic id for a log line that carries none.
+    /// </summary>
+    /// <remarks>
+    /// Derived from the line's own bytes, so it is the same on every restart.
+    /// A random id looked fine until someone triaged such a finding and the
+    /// state failed to reattach after a restart, because the id it was filed
+    /// under no longer existed.
+    /// </remarks>
+    private static string StableId(string line) =>
+        System.Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(line)))[..12].ToLowerInvariant();
 
     // ----------------------------------------------------------------- write
     private void Append(SuiteEvent item)
@@ -200,7 +289,16 @@ public sealed class EventStore
     /// </remarks>
     private void Publish(SuiteEvent item)
     {
-        foreach (var subscriber in _subscribers) subscriber.Writer.TryWrite(item);
+        foreach (var subscriber in _subscribers)
+        {
+            if (subscriber.Channel.Writer.TryWrite(item)) continue;
+
+            // The reader is too far behind to keep up. Record it rather than
+            // discarding the event quietly: a dashboard that has missed
+            // findings while still showing a live dot and a ticking uptime is
+            // worse than one that reconnects.
+            subscriber.MarkOverflowed();
+        }
     }
 
     public SuiteEvent? SetStatus(string eventId, string status, string note = "")
@@ -208,6 +306,13 @@ public sealed class EventStore
         lock (_gate)
         {
             var target = _events.FirstOrDefault(e => e.Id == eventId);
+
+            // A finding that has scrolled out of the ring buffer is still a
+            // real finding. Fall back to the log so triage does not 404 on
+            // anything older than the memory window; the state is recorded
+            // either way, and ApplyTriage reattaches it on the next load.
+            var inMemory = target is not null;
+            target ??= FindOnDisk(eventId);
             if (target is null) return null;
 
             target.Status = status;
@@ -228,7 +333,10 @@ public sealed class EventStore
             {
                 _warn("[-] Could not persist triage state: " + exc.Message);
             }
-            return target.Clone();
+
+            var result = target.Clone();
+            if (!inMemory) result.SetExtra("outside_memory_window", true);
+            return result;
         }
     }
 
@@ -253,26 +361,114 @@ public sealed class EventStore
         {
             var eventCount = _events.Count;
             var triageCount = _triage.Count;
-            var kept = _events.Where(e => e.EventType == SuiteEvent.TypeRemediation).ToList();
+
+            // Retention is read from the log, not from the ring buffer. Building
+            // it from memory destroyed exactly what this method promises to
+            // keep: a remediation record older than HistoryLimit events is not
+            // in the buffer, so rewriting the file from the buffer erased it -
+            // and the result reported a falsely low audit_retained without
+            // complaint.
+            List<SuiteEvent> kept;
+            try
+            {
+                kept = RemediationRecordsOnDisk();
+            }
+            catch (Exception exc) when (exc is IOException or UnauthorizedAccessException)
+            {
+                // Abort rather than truncate. A log we cannot read is a log we
+                // cannot safely rewrite.
+                _warn("[-] Refusing to clear: the findings log could not be read (" +
+                      exc.Message + ")");
+                return new ClearResult
+                {
+                    Cleared = false,
+                    Events = eventCount,
+                    Triage = triageCount,
+                    Error = "the findings log could not be read, so nothing was cleared",
+                };
+            }
 
             var backupDir = "";
             var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
             var target = System.IO.Path.Combine(
                 System.IO.Path.GetDirectoryName(Path) ?? ".", "log-backups", stamp);
+            var hadFindings = File.Exists(Path);
+            var hadTriage = File.Exists(TriagePath);
             try
             {
                 Directory.CreateDirectory(target);
-                if (File.Exists(Path))
+                if (hadFindings)
                     File.Copy(Path, System.IO.Path.Combine(target, System.IO.Path.GetFileName(Path)), true);
-                if (File.Exists(TriagePath))
+                if (hadTriage)
                     File.Copy(TriagePath, System.IO.Path.Combine(target, System.IO.Path.GetFileName(TriagePath)), true);
                 backupDir = target;
             }
             catch (Exception exc) when (exc is IOException or UnauthorizedAccessException)
             {
-                _warn("[-] Could not back up logs before clear: " + exc.Message);
+                _warn("[-] Refusing to clear: logs could not be backed up (" + exc.Message + ")");
+                return new ClearResult
+                {
+                    Cleared = false,
+                    Events = eventCount,
+                    Triage = triageCount,
+                    Error = "the backup failed, so nothing was cleared",
+                };
             }
 
+            var findingsStaging = Path + ".clearing";
+            var triageStaging = TriagePath + ".clearing";
+            try
+            {
+                // Prepare both replacement files before touching either live
+                // file. If the second rename fails after the first succeeds,
+                // restore both originals from the unconditional backup.
+                File.WriteAllText(findingsStaging, string.Concat(
+                    kept.Select(e => JsonSerializer.Serialize(e, SuiteJson.Options) + "\n")));
+                File.WriteAllText(triageStaging, "{}");
+                File.Move(findingsStaging, Path, overwrite: true);
+                File.Move(triageStaging, TriagePath, overwrite: true);
+            }
+            catch (Exception exc) when (exc is IOException or UnauthorizedAccessException)
+            {
+                var rollbackError = "";
+                try
+                {
+                    var backedFindings = System.IO.Path.Combine(
+                        target, System.IO.Path.GetFileName(Path));
+                    var backedTriage = System.IO.Path.Combine(
+                        target, System.IO.Path.GetFileName(TriagePath));
+
+                    if (hadFindings) File.Copy(backedFindings, Path, true);
+                    else if (File.Exists(Path)) File.Delete(Path);
+
+                    if (hadTriage) File.Copy(backedTriage, TriagePath, true);
+                    else if (File.Exists(TriagePath)) File.Delete(TriagePath);
+                }
+                catch (Exception rollback) when (rollback is IOException or UnauthorizedAccessException)
+                {
+                    rollbackError = "; rollback also failed: " + rollback.Message;
+                }
+                finally
+                {
+                    try { if (File.Exists(findingsStaging)) File.Delete(findingsStaging); }
+                    catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException) { }
+                    try { if (File.Exists(triageStaging)) File.Delete(triageStaging); }
+                    catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException) { }
+                }
+
+                _warn("[-] Refusing to clear: replacement failed (" + exc.Message + rollbackError + ")");
+                return new ClearResult
+                {
+                    Cleared = false,
+                    Events = eventCount,
+                    Triage = triageCount,
+                    AuditRetained = kept.Count,
+                    BackupDir = backupDir,
+                    Error = "the replacement failed, so the clear was rolled back" + rollbackError,
+                };
+            }
+
+            // Memory changes only after both durable files were replaced.
             _events.Clear();
             _triage.Clear();
             _counters.Clear();
@@ -280,17 +476,6 @@ public sealed class EventStore
             {
                 Append(item);
                 Count(item);
-            }
-
-            try
-            {
-                File.WriteAllText(Path, string.Concat(
-                    kept.Select(e => JsonSerializer.Serialize(e, SuiteJson.Options) + "\n")));
-                File.WriteAllText(TriagePath, "{}");
-            }
-            catch (Exception exc) when (exc is IOException or UnauthorizedAccessException)
-            {
-                _warn("[-] Could not clear finding state: " + exc.Message);
             }
 
             return new ClearResult
@@ -446,21 +631,26 @@ public sealed class EventStore
     }
 
     // --------------------------------------------------------------- pub/sub
-    public Channel<SuiteEvent> Subscribe()
+    public Subscription Subscribe()
     {
-        var channel = Channel.CreateBounded<SuiteEvent>(new BoundedChannelOptions(256)
-        {
-            FullMode = BoundedChannelFullMode.DropOldest,
-            SingleReader = true,
-        });
-        lock (_gate) _subscribers.Add(channel);
-        return channel;
+        // Wait mode, driven by TryWrite: the write fails when the buffer is
+        // full instead of silently dropping, which is the only way the store
+        // can tell that a reader has fallen behind.
+        var subscription = new Subscription(Channel.CreateBounded<SuiteEvent>(
+            new BoundedChannelOptions(256)
+            {
+                FullMode = BoundedChannelFullMode.Wait,
+                SingleReader = true,
+            }));
+
+        lock (_gate) _subscribers.Add(subscription);
+        return subscription;
     }
 
-    public void Unsubscribe(Channel<SuiteEvent> channel)
+    public void Unsubscribe(Subscription subscription)
     {
-        lock (_gate) _subscribers.Remove(channel);
-        channel.Writer.TryComplete();
+        lock (_gate) _subscribers.Remove(subscription);
+        subscription.Channel.Writer.TryComplete();
     }
 
     /// <summary>Push a transient notice to live clients without storing it.</summary>

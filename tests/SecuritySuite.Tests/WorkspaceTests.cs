@@ -879,6 +879,38 @@ public sealed class ScanJobTests : IDisposable
         Assert.NotEqual(ScanJobState.Completed, job.State);
     }
 
+    /// <summary>
+    /// Stopping a monitor parked in a long poll returns promptly and leaves it
+    /// not running.
+    /// </summary>
+    /// <remarks>
+    /// This covers the shutdown path, not the cancellation guard in
+    /// <c>Loop</c>: because <c>Stop</c> signals the wake handle before
+    /// cancelling, the wait returns normally and the guard is never reached, so
+    /// this test passes with or without it. The guard exists for the ordering
+    /// we do not control, which cannot be provoked through the public API.
+    /// </remarks>
+    [Fact]
+    public void Stopping_a_monitor_in_a_long_poll_returns_promptly()
+    {
+        _fx.Config.PollInterval = 30;
+        var (monitor, _) = New();
+
+        monitor.Start();
+        Thread.Sleep(100);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        monitor.Stop();
+        watch.Stop();
+
+        Assert.False(monitor.Running);
+
+        // The point of signalling the wake handle: shutdown must not sit out
+        // the remaining poll interval.
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5),
+            "Stop() took " + watch.Elapsed + ", so it waited out the poll interval");
+    }
+
     [Fact]
     public void An_empty_or_null_path_is_refused_before_a_job_starts()
     {

@@ -123,11 +123,17 @@ public sealed class DirectoryMonitor
         Thread? thread;
         lock (_gate)
         {
+            // Signal before cancelling, not after. The sweep loop waits on
+            // _wake with the token attached, and that wait throws if it
+            // observes cancellation without a signal. Setting first means the
+            // wait always returns normally and the loop exits through its own
+            // condition; the catch in Loop then covers only the ordering we do
+            // not control, rather than being the mechanism shutdown relies on.
+            _wake.Set();
             _stop?.Cancel();
             thread = _thread;
             _thread = null;
         }
-        _wake.Set();
         thread?.Join(TimeSpan.FromSeconds(5));
     }
 
@@ -183,24 +189,37 @@ public sealed class DirectoryMonitor
         _store.Broadcast("Monitoring " + string.Join(", ", Config.WatchPaths));
 
         var interval = TimeSpan.FromSeconds(Math.Max(0.1, Config.PollInterval));
-        while (!token.IsCancellationRequested)
+        try
         {
-            if (!_paused)
+            while (!token.IsCancellationRequested)
             {
-                try
+                if (!_paused)
                 {
-                    Sweep(token);
-                    LastError = null;
+                    try
+                    {
+                        Sweep(token);
+                        LastError = null;
+                    }
+                    catch (Exception exc) when (exc is IOException or UnauthorizedAccessException)
+                    {
+                        // Keep the monitor alive through a bad path: a watch root on
+                        // a disconnected share must not stop the other roots.
+                        LastError = exc.Message;
+                    }
                 }
-                catch (Exception exc) when (exc is IOException or UnauthorizedAccessException)
-                {
-                    // Keep the monitor alive through a bad path: a watch root on
-                    // a disconnected share must not stop the other roots.
-                    LastError = exc.Message;
-                }
+                _wake.Wait(interval, token);
+                _wake.Reset();
             }
-            _wake.Wait(interval, token);
-            _wake.Reset();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Not the normal exit path: Stop() signals _wake before cancelling,
+            // so the wait returns and the loop leaves through its own
+            // condition. This covers the case where the token is cancelled
+            // without that signal, where the wait throws instead. Worth
+            // catching because an exception escaping a thread with no handler
+            // terminates the process, so the alternative to three lines here is
+            // a scanner that dies on an unlucky shutdown.
         }
     }
 

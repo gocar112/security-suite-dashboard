@@ -28,10 +28,10 @@ This is a defensive workbench that supplements installed endpoint protection.
 It is not NSA affiliated or certified, and a low alert count does not establish
 that a computer or network is safe.
 
-> **Windows x64 or ARM64 only.** The suite is .NET 10 and binds YARA through
-> Microsoft's `libyara.NET`, a C++/CLI mixed-mode assembly: it ships `win-x64`
-> and `win-arm64` runtime assets and nothing else, and a mixed-mode image cannot
-> load as AnyCPU. Version 1.x ran on Linux and macOS as well; 2.0 does not. The
+> **Windows x64 only.** The suite is .NET 10 and binds YARA through Microsoft's
+> `libyara.NET`, a C++/CLI mixed-mode assembly. This repository targets and tests
+> `win-x64`; a mixed-mode image cannot load as AnyCPU. Version 1.x ran on Linux
+> and macOS as well; 2.0 does not. The
 > scanner sits behind `IScanBackend`, so a P/Invoke or CLI-shelling backend can
 > restore those platforms without touching the monitor, the store, the HTTP
 > layer or the remediation rails.
@@ -41,6 +41,7 @@ that a computer or network is safe.
 - Operator guide: [book/Security-Suite-Operator-Guide.md](book/Security-Suite-Operator-Guide.md)
 - Detection engineering field guide: [book/Detection-Engineering-in-Practice.pdf](book/Detection-Engineering-in-Practice.pdf)
 - Database summary: [docs/database-summary.md](docs/database-summary.md)
+- C# migration verification: [docs/migration-verification.md](docs/migration-verification.md)
 - Release summary: [docs/release-summary.md](docs/release-summary.md)
 - Detailed update report: [docs/update-report-1.1.0.md](docs/update-report-1.1.0.md)
 - Main dashboard screenshot: [docs/images/console-1440.png](docs/images/console-1440.png)
@@ -110,7 +111,7 @@ nullable and analyzer rules the code is written against are satisfied.
 | --- | --- | --- |
 | .NET 10 SDK | Required to build | Everything. The runtime alone is enough to run a published build. |
 | `Microsoft.O365.Security.Native.libyara.NET.Core` 4.5.5 | Required | YARA compile and scan engine. Restored by NuGet, and the native libyara ships inside it, so there is nothing to install separately. |
-| Windows x64 or ARM64 | Required | The YARA binding is C++/CLI. See the platform note above. |
+| Windows x64 | Required | The YARA binding is C++/CLI and this repository targets `win-x64`. See the platform note above. |
 | Administrator | Optional | Windows Security event-log telemetry. Without it the suite reports `denied` rather than an empty result. |
 | Node | Optional | `node --check` on the dashboard scripts, and the Playwright UI check in `tools/check_ui.cjs`. |
 
@@ -178,8 +179,9 @@ implemented. Keep your installed antivirus enabled.
 [SECURITY.md](SECURITY.md) documents reporting and deployment boundaries.
 Dependabot configuration checks NuGet and Actions dependencies weekly; CodeQL
 analyzes C# and JavaScript on pushes, pull requests and its weekly schedule.
-CI runs the boundary and smoke checks on Windows, Linux and macOS. These checks
-do not certify malware-detection accuracy or test live household devices.
+CI runs the build, boundary tests, JavaScript checks, database-summary
+generation, and rule-load smoke check on Windows. These checks do not certify
+malware-detection accuracy or test live household devices.
 
 Administrators should verify dependency graph, Dependabot security alerts,
 secret scanning, push protection and private vulnerability reporting under the
@@ -495,7 +497,7 @@ config.json                    optional local overrides
 src/SecuritySuite.Core/        scanner, store, server, adapters, remediation rails
 src/SecuritySuite.Cli/         securitysuite.exe - monitor, dashboard, --scan, shortcuts
 src/SecuritySuite.Tools/       suite-tools.exe - rule generation, summaries, mirror sync
-tests/SecuritySuite.Tests/     245 tests (xUnit)
+tests/SecuritySuite.Tests/     256 tests (xUnit)
 rules/                         YARA rules
 rules/generated/               generated vulnerable-component rules
 samples/                       harmless test files
@@ -546,7 +548,7 @@ where noted; these are the differences worth knowing about.
 
 | Area | 1.x (Python) | 2.0 (C#) |
 | --- | --- | --- |
-| Platform | Windows, Linux, macOS | **Windows x64/ARM64 only** — forced by the C++/CLI YARA binding |
+| Platform | Windows, Linux, macOS | **Windows x64 only** — the repository targets and tests `win-x64` because of the C++/CLI YARA binding |
 | Runtime | Python 3.10+, `yara-python`, `certifi`, `pywin32` | .NET 10, one NuGet package |
 | Scan timeout | `timeout=60` per scan | **Not available** — `libyara.NET` exposes only `ScanFlags.None/Fast`, so exposure is bounded by `max_file_mb` instead |
 | Rule metadata | Parsed out of rule source text, because yara-python has no introspection | Real introspection via `Rules.GetRules()` |
@@ -556,7 +558,7 @@ where noted; these are the differences worth knowing about.
 | IOC CSV export | Header and value lists written out twice, so a new field silently failed to export | Columns derived from the model |
 | NVD status | Cached sync index merged into the live payload, which let a stale `api_key: false` report a configured key as absent | Sync index nested under `sync`, making that class of bug impossible |
 | Playbook validation | Hand-written JSON Schema validator | Typed model with `JsonUnmappedMemberHandling.Disallow`; `web/playbook.schema.json` remains the contract |
-| Tests | 55 | 245 |
+| Tests | 55 | 256 |
 
 ## What Changed From `YARA_scanning.py`
 
