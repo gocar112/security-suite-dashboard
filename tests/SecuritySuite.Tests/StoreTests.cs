@@ -542,3 +542,90 @@ public sealed class StoreTests : IDisposable
 
     public void Dispose() => PathUtilTests.TryDelete(_temp);
 }
+
+/// <summary>
+/// The guard that stops two monitors sharing one workspace. The CLI's older
+/// check probed for a running instance by port, so a second instance on a
+/// different port shared the findings log, swept the same watch paths and
+/// wrote duplicate findings with identical hashes seconds apart.
+/// </summary>
+public sealed class WorkspaceLockTests : IDisposable
+{
+    private readonly string _temp = Directory.CreateTempSubdirectory("suite-lock").FullName;
+
+    private string Log => Path.Combine(_temp, "data", "findings.ndjson");
+
+    [Fact]
+    public void The_first_caller_takes_the_lock()
+    {
+        using var held = WorkspaceLock.Acquire(Log);
+
+        Assert.True(held.Held);
+        Assert.Null(held.HeldBy);
+        Assert.True(File.Exists(held.Path));
+    }
+
+    [Fact]
+    public void A_second_caller_on_the_same_workspace_is_refused()
+    {
+        using var first = WorkspaceLock.Acquire(Log);
+        using var second = WorkspaceLock.Acquire(Log);
+
+        Assert.True(first.Held);
+        Assert.False(second.Held);
+    }
+
+    /// <summary>
+    /// The refusal has to name the process to stop, which is why the owner
+    /// holds the file with FileShare.Read rather than None.
+    /// </summary>
+    [Fact]
+    public void The_refusal_names_the_owning_process()
+    {
+        using var first = WorkspaceLock.Acquire(Log);
+        using var second = WorkspaceLock.Acquire(Log);
+
+        Assert.NotNull(second.HeldBy);
+        Assert.Contains("pid=" + Environment.ProcessId, second.HeldBy);
+        Assert.True(second.OwnerIsAlive());
+    }
+
+    [Fact]
+    public void Releasing_the_lock_lets_the_next_caller_take_it()
+    {
+        var first = WorkspaceLock.Acquire(Log);
+        Assert.True(first.Held);
+        first.Dispose();
+
+        using var second = WorkspaceLock.Acquire(Log);
+        Assert.True(second.Held);
+    }
+
+    /// <summary>
+    /// The port is not what has to be unique. Two workspaces may run at once;
+    /// one workspace may not be monitored twice.
+    /// </summary>
+    [Fact]
+    public void Separate_workspaces_do_not_block_each_other()
+    {
+        var other = Path.Combine(_temp, "other", "findings.ndjson");
+
+        using var first = WorkspaceLock.Acquire(Log);
+        using var second = WorkspaceLock.Acquire(other);
+
+        Assert.True(first.Held);
+        Assert.True(second.Held);
+        Assert.NotEqual(first.Path, second.Path);
+    }
+
+    [Fact]
+    public void The_lock_file_is_removed_on_a_clean_exit()
+    {
+        string path;
+        using (var held = WorkspaceLock.Acquire(Log)) path = held.Path;
+
+        Assert.False(File.Exists(path));
+    }
+
+    public void Dispose() => PathUtilTests.TryDelete(_temp);
+}

@@ -112,6 +112,21 @@ internal static class Program
             }
         }
 
+        // One monitor per workspace. The probe above only finds an instance on
+        // a port we guessed; this catches one on any port, which is how the
+        // same file ended up detected twice with an identical hash.
+        using var workspace = WorkspaceLock.Acquire(cfg.FindingsLog);
+        if (!workspace.Held)
+        {
+            Status("[-] Another Security Suite is already monitoring this workspace.");
+            Status("    Findings log : " + cfg.FindingsLog);
+            if (workspace.HeldBy is { } owner) Status("    Held by      : " + owner);
+            Status("    Two monitors on one workspace scan every file twice and write");
+            Status("    duplicate findings, so this one will not start. Stop the other,");
+            Status("    or point this one at a different workspace with its own config.");
+            return 1;
+        }
+
         monitor.Start();
         Status("[*] Watching   : " + string.Join(", ", cfg.WatchPaths));
         Status("[*] Findings   : " + cfg.FindingsLog);
