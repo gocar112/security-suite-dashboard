@@ -12,6 +12,7 @@ rule Linux_Reverse_Shell_OneLiner : malware
     meta:
         description = "Reverse shell one-liner using bash, nc, or a scripting runtime"
         severity = "critical"
+        mitre = "T1059.004"
         author = "security-suite"
     strings:
         $b1 = "/dev/tcp/" nocase
@@ -36,6 +37,7 @@ rule Cron_Persistence_With_Download : suspicious
     meta:
         description = "Cron entry that fetches and runs remote content on a schedule"
         severity = "high"
+        mitre = "T1053.003,T1105"
     strings:
         $c1 = "crontab -" nocase
         $c2 = "/etc/cron.d/" nocase
@@ -56,6 +58,7 @@ rule LD_PRELOAD_Userland_Rootkit : malware
     meta:
         description = "Userland rootkit hooking libc through the dynamic linker"
         severity = "critical"
+        mitre = "T1574.006,T1014"
     strings:
         $p1 = "/etc/ld.so.preload" nocase
         $p2 = "LD_PRELOAD" nocase
@@ -72,6 +75,7 @@ rule SSH_Credential_And_Key_Theft : malware
     meta:
         description = "Code collecting SSH private keys, known hosts, or shell history"
         severity = "critical"
+        mitre = "T1552.004"
     strings:
         $k1 = ".ssh/id_rsa" nocase
         $k2 = ".ssh/id_ed25519" nocase
@@ -93,6 +97,7 @@ rule Systemd_Service_Persistence : suspicious
     meta:
         description = "Systemd unit launching a payload from a world-writable path"
         severity = "high"
+        mitre = "T1543.002"
     strings:
         $u1 = "[Service]"
         $u2 = "ExecStart="
@@ -111,6 +116,7 @@ rule Linux_Log_And_History_Wiping : suspicious
     meta:
         description = "Anti-forensics: truncating logs or disabling shell history"
         severity = "high"
+        mitre = "T1070.002,T1070.003"
     strings:
         $h1 = "unset HISTFILE" nocase
         $h2 = "HISTSIZE=0" nocase
@@ -132,6 +138,7 @@ rule Container_Escape_Attempt : malware
     meta:
         description = "Container breakout via docker socket, privileged mount, or release_agent"
         severity = "critical"
+        mitre = "T1611"
     strings:
         $c1 = "/var/run/docker.sock" nocase
         $c2 = "release_agent" nocase

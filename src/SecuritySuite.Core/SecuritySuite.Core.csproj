@@ -4,6 +4,11 @@
     <AssemblyName>SecuritySuite.Core</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The incident report's stylesheet is embedded so a published build has
+         no file to lose, and stays a .css file so it can be edited as one. -->
+    <EmbeddedResource Include="Casework/report.css" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- Internal helpers that exist to be tested directly: parsers and path
          canonicalisation whose edge cases matter more than their API shape. -->
     <InternalsVisibleTo Include="SecuritySuite.Tests" />

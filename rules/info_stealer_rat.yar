@@ -8,6 +8,7 @@ rule Commodity_Stealer_Strings : malware
     meta:
         description = "Strings associated with common commodity infostealer families"
         severity = "critical"
+        mitre = "T1555,T1005"
         author = "security-suite"
     strings:
         $a1 = "RedLine" nocase
@@ -24,6 +25,7 @@ rule RAT_Persistence_Run_Key : suspicious
     meta:
         description = "Registry Run key persistence combined with remote-access naming"
         severity = "high"
+        mitre = "T1547.001"
     strings:
         $r1 = "\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" nocase
         $r2 = "RegSetValueEx" nocase
@@ -39,6 +41,7 @@ rule Screen_Webcam_Capture_With_Exfil : malware
     meta:
         description = "Screenshot or webcam capture APIs combined with network exfiltration"
         severity = "critical"
+        mitre = "T1113,T1125,T1041"
     strings:
         $c1 = "BitBlt" nocase
         $c2 = "CopyFromScreen" nocase
@@ -56,6 +59,7 @@ rule Browser_Autofill_Wallet_File_Targeting : malware
     meta:
         description = "Code enumerating browser autofill data or cryptocurrency wallet files"
         severity = "critical"
+        mitre = "T1555.003,T1005"
     strings:
         // Wallet artifacts. Each is specific enough to mean something on its
         // own - a bare product name like "Exodus" is not, so it is qualified
@@ -94,6 +98,7 @@ rule RAT_C2_Handshake_Strings : malware
     meta:
         description = "Fixed handshake or beacon strings used by common RAT families to register a new victim"
         severity = "critical"
+        mitre = "T1071.001"
     strings:
         $a1 = "njRAT" nocase
         $a2 = "DarkComet" nocase

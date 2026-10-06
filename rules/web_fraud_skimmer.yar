@@ -8,6 +8,7 @@ rule JS_Payment_Card_Skimmer : malware
     meta:
         description = "JavaScript reading payment card fields and exfiltrating them off-page"
         severity = "critical"
+        mitre = "T1056.003"
         author = "security-suite"
     strings:
         $f1 = "cardnumber" nocase
@@ -27,6 +28,7 @@ rule Formjacking_Exfil_Domain_Pattern : malware
     meta:
         description = "Checkout form submit handler redirecting captured data to a third-party domain"
         severity = "critical"
+        mitre = "T1056.003"
     strings:
         $a1 = "addEventListener(\"submit\"" nocase
         $a2 = "onsubmit" nocase
@@ -43,6 +45,7 @@ rule Fake_Payment_Gateway_Iframe : phishing
     meta:
         description = "Injected iframe overlay mimicking a payment gateway on a checkout page"
         severity = "high"
+        mitre = "T1056.003"
     strings:
         $i1 = "<iframe" nocase
         $i2 = "position:absolute" nocase
@@ -59,6 +62,7 @@ rule Obfuscated_Skimmer_Exfil_Beacon : malware
     meta:
         description = "Obfuscated JavaScript beaconing captured form data to a hardcoded endpoint"
         severity = "critical"
+        mitre = "T1056.003,T1027"
     strings:
         $o1 = "eval(atob(" nocase
         $o2 = "String.fromCharCode(" nocase

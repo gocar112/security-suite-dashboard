@@ -8,6 +8,7 @@ rule Credential_Harvesting_Form : phishing
     meta:
         description = "HTML login form that posts credentials to a non-relative, attacker-controlled endpoint"
         severity = "high"
+        mitre = "T1566.002,T1056.003"
         author = "security-suite"
     strings:
         $f1 = "<input type=\"password\"" nocase
@@ -24,6 +25,7 @@ rule Brand_Impersonation_Lookalike_Markup : phishing
     meta:
         description = "Page markup referencing a well known brand while hosted off-brand"
         severity = "medium"
+        mitre = "T1566.002"
     strings:
         $b1 = "PayPal" nocase
         $b2 = "Microsoft 365" nocase
@@ -41,6 +43,7 @@ rule Urgency_Lure_With_Redirect : phishing
     meta:
         description = "Urgency-themed lure language paired with a link redirect or shortener"
         severity = "medium"
+        mitre = "T1566.002"
     strings:
         $u1 = "account will be suspended" nocase
         $u2 = "act now" nocase
@@ -59,6 +62,7 @@ rule QR_Code_Phishing_Lure : phishing
     meta:
         description = "Message instructing the recipient to scan a QR code to \"verify\" or \"reactivate\" an account"
         severity = "medium"
+        mitre = "T1566.002"
     strings:
         $q1 = "scan the QR code" nocase
         $q2 = "scan this code" nocase
@@ -75,6 +79,7 @@ rule Invoice_Finance_Themed_Lure : phishing
     meta:
         description = "Finance-themed lure attachment or message pressuring quick payment action"
         severity = "medium"
+        mitre = "T1566.001"
     strings:
         $s1 = "invoice attached" nocase
         $s2 = "outstanding balance" nocase

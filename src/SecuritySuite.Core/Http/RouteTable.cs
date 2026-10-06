@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using SecuritySuite.Configuration;
+using SecuritySuite.Casework;
+using SecuritySuite.Hunting;
 using SecuritySuite.Intel;
 using SecuritySuite.Jobs;
 using SecuritySuite.Remediation;
@@ -137,6 +139,22 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
                     search: query.Get("q"));
 
                 if (ctx.Remediator is not null) findings = ctx.Remediator.AnnotateMany(findings);
+
+                // Resolved ATT&CK techniques are attached here rather than
+                // stored, so a correction to the technique table reaches old
+                // findings instead of only new ones.
+                foreach (var finding in findings)
+                {
+                    var techniques = (finding.Matches ?? [])
+                        .SelectMany(AttackMapping.Resolve)
+                        .GroupBy(t => t.Id, StringComparer.Ordinal)
+                        .Select(g => g.First())
+                        .ToList();
+
+                    if (techniques.Count == 0) continue;
+                    finding.SetExtra("attack", techniques);
+                    finding.SetExtra("attack_tactics", AttackMapping.TacticsFor(techniques));
+                }
                 await Json(response, new { findings }).ConfigureAwait(false);
                 return;
             }
@@ -152,6 +170,73 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
 
             case "/api/intel":
                 await Json(response, Intel()).ConfigureAwait(false);
+                return;
+
+            case "/api/attack/coverage":
+                await Json(response, AttackMapping.Coverage(
+                    ctx.Engine.Info(),
+                    ctx.Store.Events(limit: 2000, eventType: SuiteEvent.TypeMatch)))
+                    .ConfigureAwait(false);
+                return;
+
+            case "/api/attack/techniques":
+                await Json(response, new
+                {
+                    tactics = AttackMapping.Tactics.Select(t => new { id = t.Id, name = t.Name }),
+                    techniques = AttackMapping.Techniques
+                        .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                        .Select(kv => AttackMapping.Describe(kv.Key)),
+                }).ConfigureAwait(false);
+                return;
+
+            case "/api/hunt":
+            {
+                var hunt = HuntQuery.Run(
+                    query.Get("q"),
+                    ctx.Store.Events(limit: 5000, eventType: "all"),
+                    HttpPrimitives.Integer(query.Get("limit"), 300));
+
+                // A query that did not parse is the operator's typo, not a
+                // server fault, so it is 400 carrying the parser's own message.
+                await Json(response, hunt, hunt.Error is null ? 200 : 400).ConfigureAwait(false);
+                return;
+            }
+
+            case "/api/hunt/saved":
+                await Json(response, new { hunts = ctx.SavedHunts.All() }).ConfigureAwait(false);
+                return;
+
+            case "/api/graph":
+                await Json(response, LinkGraph.Build(
+                    ctx.Store.Events(limit: 2000, eventType: SuiteEvent.TypeMatch),
+                    HttpPrimitives.Integer(query.Get("max_nodes"), LinkGraph.DefaultMaxNodes, 5000),
+                    query.GetOrEmpty("linking_only") == "1")).ConfigureAwait(false);
+                return;
+
+            case "/api/cases":
+                await Json(response, new
+                {
+                    cases = ctx.Cases.All(query.GetOrEmpty("status")),
+                    summary = ctx.Cases.Summary(),
+                    statuses = CaseStore.Statuses,
+                }).ConfigureAwait(false);
+                return;
+
+            case "/api/cases/detail":
+            {
+                var record = ctx.Cases.Get(query.GetOrEmpty("id"));
+                if (record is null)
+                {
+                    await Json(response, new { error = "unknown case" }, 404).ConfigureAwait(false);
+                    return;
+                }
+                await Json(response, new { @case = record, findings = CaseFindings(record) })
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            case "/api/report":
+                await ReportAsync(response, query, headOnly).ConfigureAwait(false);
                 return;
 
             case "/api/shield":
@@ -582,6 +667,69 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
                 return;
             }
 
+            case "/api/hunt/saved":
+            {
+                if (body.Str("delete") is { Length: > 0 } huntId)
+                {
+                    await Json(response, new { deleted = ctx.SavedHunts.Delete(huntId) })
+                        .ConfigureAwait(false);
+                    return;
+                }
+                try
+                {
+                    await Json(response, ctx.SavedHunts.Save(
+                        body.Str("name"), body.Str("query"), body.Str("description")))
+                        .ConfigureAwait(false);
+                }
+                catch (HuntQueryException exc)
+                {
+                    await Json(response, new { error = exc.Message }, 400).ConfigureAwait(false);
+                }
+                return;
+            }
+
+            case "/api/cases":
+                await Json(response, ctx.Cases.Create(
+                    body.Str("title"), body.Str("owner"),
+                    body.Str("severity") ?? Severity.Medium,
+                    body.Strings("finding_ids"), body.Str("summary")), 201).ConfigureAwait(false);
+                return;
+
+            case "/api/cases/update":
+                await CaseResultAsync(response, ctx.Cases.Update(
+                    body.Str("id") ?? "", body.Str("title"), body.Str("owner"),
+                    body.Str("summary"), body.Str("status"), body.Str("severity")))
+                    .ConfigureAwait(false);
+                return;
+
+            case "/api/cases/link":
+                await CaseResultAsync(response, ctx.Cases.Link(
+                    body.Str("id") ?? "", body.Strings("finding_ids"), body.Flag("detach")))
+                    .ConfigureAwait(false);
+                return;
+
+            case "/api/cases/note":
+            {
+                var noted = ctx.Cases.AddNote(body.Str("id") ?? "", body.Str("text"), body.Str("author"));
+                if (noted is null)
+                {
+                    // Either the case is gone or the note was blank. Both are
+                    // the caller's problem, not a server fault.
+                    await Json(response, new { error = "unknown case, or empty note" }, 404)
+                        .ConfigureAwait(false);
+                    return;
+                }
+                await Json(response, noted).ConfigureAwait(false);
+                return;
+            }
+
+            case "/api/cases/delete":
+            {
+                var deleted = ctx.Cases.Delete(body.Str("id") ?? "");
+                await Json(response, new { deleted }, deleted ? 200 : 404).ConfigureAwait(false);
+                return;
+            }
+
             case "/api/triage":
             {
                 var status = body.Str("status") ?? "acknowledged";
@@ -629,6 +777,71 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
         response.StatusCode = 200;
         response.ContentType = HttpPrimitives.ContentTypeFor(target);
         response.ContentLength64 = body.Length;
+        if (!headOnly) await response.OutputStream.WriteAsync(body).ConfigureAwait(false);
+    }
+
+    /// <summary>The findings a case points at, resolved from their ids.</summary>
+    private List<SuiteEvent> CaseFindings(CaseRecord record)
+    {
+        var wanted = record.FindingIds.ToHashSet(StringComparer.Ordinal);
+        if (wanted.Count == 0) return [];
+
+        var found = ctx.Store.Events(limit: 5000, eventType: "all")
+            .Where(e => wanted.Contains(e.Id))
+            .ToList();
+
+        return ctx.Remediator is not null ? ctx.Remediator.AnnotateMany(found) : found;
+    }
+
+    private static async Task CaseResultAsync(HttpListenerResponse response, CaseRecord? record)
+    {
+        if (record is null)
+        {
+            await Json(response, new { error = "unknown case" }, 404).ConfigureAwait(false);
+            return;
+        }
+        await Json(response, record).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Render one case as a self-contained incident report.
+    /// </summary>
+    /// <remarks>
+    /// Served as a download rather than inline. The report is built from
+    /// attacker-influenced text, and although every value in it is escaped,
+    /// rendering it inline would put it on the dashboard's own origin.
+    /// Content-Disposition keeps it a document the operator saves.
+    /// </remarks>
+    private async Task ReportAsync(HttpListenerResponse response,
+                                   System.Collections.Specialized.NameValueCollection query,
+                                   bool headOnly)
+    {
+        var record = ctx.Cases.Get(query.GetOrEmpty("id"));
+        if (record is null)
+        {
+            await Json(response, new { error = "unknown case" }, 404).ConfigureAwait(false);
+            return;
+        }
+
+        var findings = CaseFindings(record);
+        var indicators = IocAggregator.Summarise(findings).Indicators;
+        var campaigns = LinkGraph.Build(findings).Campaigns;
+
+        var linked = record.FindingIds.ToHashSet(StringComparer.Ordinal);
+        var remediation = ctx.Store.Events(limit: 500, eventType: SuiteEvent.TypeRemediation)
+            .Where(e => e.GetExtra<string>("finding") is { } id && linked.Contains(id))
+            .ToList();
+
+        var html = IncidentReport.Render(record, findings, indicators, campaigns,
+            remediation, EventStore.NowIso(), Version);
+
+        var body = Encoding.UTF8.GetBytes(html);
+        response.StatusCode = 200;
+        response.ContentType = "text/html; charset=utf-8";
+        response.ContentLength64 = body.Length;
+        response.Headers["Content-Disposition"] =
+            "attachment; filename=" + '"' + "incident-" + record.Id + ".html" + '"';
+
         if (!headOnly) await response.OutputStream.WriteAsync(body).ConfigureAwait(false);
     }
 

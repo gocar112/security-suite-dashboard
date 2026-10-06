@@ -45,6 +45,9 @@ public static class SuiteHttp
     public const string UserAgent =
         "security-suite/2.0 (+https://github.com/gocar112/security-suite-dashboard)";
 
+    /// <summary>Redirect hops followed before giving up.</summary>
+    private const int MaxRedirects = 5;
+
     private static readonly Lazy<HttpClient> ClientLazy = new(() =>
     {
         var handler = new SocketsHttpHandler
@@ -52,12 +55,36 @@ public static class SuiteHttp
             AutomaticDecompression = DecompressionMethods.All,
             PooledConnectionLifetime = TimeSpan.FromMinutes(5),
             MaxConnectionsPerServer = 8,
+
+            // Redirects are followed by hand instead. These requests carry API
+            // keys in ordinary headers (NVD's apiKey, VirusTotal's x-apikey),
+            // and .NET only strips Authorization across a host change, not
+            // arbitrary headers. Automatic redirects would therefore hand the
+            // key to whatever host the response pointed at.
+            AllowAutoRedirect = false,
         };
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }, isThreadSafe: true);
+
+    /// <summary>
+    /// Reject anything that is not an absolute HTTPS URL to a named host.
+    /// </summary>
+    /// <remarks>
+    /// Guards against a cleartext target, a <c>file://</c> read, and userinfo
+    /// in the URL. Checked on the initial request and again on every redirect
+    /// hop, so a 302 cannot downgrade a credentialed request to HTTP.
+    /// </remarks>
+    public static void RequireHttps(Uri uri)
+    {
+        if (!uri.IsAbsoluteUri || uri.Scheme != Uri.UriSchemeHttps ||
+            string.IsNullOrEmpty(uri.Host) || !string.IsNullOrEmpty(uri.UserInfo))
+        {
+            throw new HttpFailure(0, "outbound URL must be an absolute HTTPS URL without credentials");
+        }
+    }
 
     public static HttpClient Client => ClientLazy.Value;
 
@@ -90,28 +117,16 @@ public static class SuiteHttp
                                                       double timeoutSeconds,
                                                       CancellationToken token)
     {
+        RequireHttps(request.RequestUri!);
+
         foreach (var (key, value) in headers ?? new Dictionary<string, string>())
             request.Headers.TryAddWithoutValidation(key, value);
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
 
-        HttpResponseMessage response;
-        try
-        {
-            response = await Client.SendAsync(request, HttpCompletionOption.ResponseContentRead,
-                timeout.Token).ConfigureAwait(false);
-        }
-        catch (TaskCanceledException) when (!token.IsCancellationRequested)
-        {
-            throw new HttpFailure(0, "request timed out after " + timeoutSeconds + "s");
-        }
-        catch (HttpRequestException exc)
-        {
-            // Status 0 means the request never got an answer: DNS, TLS, or the
-            // network. Distinct from a server that answered with an error.
-            throw new HttpFailure(0, exc.Message);
-        }
+        var response = await SendFollowingRedirectsAsync(request, timeout.Token, token)
+            .ConfigureAwait(false);
 
         using (response)
         {
@@ -131,6 +146,78 @@ public static class SuiteHttp
                 throw new HttpFailure((int)response.StatusCode,
                     "response was not JSON: " + exc.Message);
             }
+        }
+    }
+
+    /// <summary>
+    /// Send a request, following redirects by hand.
+    /// </summary>
+    /// <remarks>
+    /// Every hop is re-checked with <see cref="RequireHttps"/>, and headers are
+    /// carried forward only while the host is unchanged. A redirect to another
+    /// host gets the request without its credentials, which is the behaviour
+    /// automatic redirects do not give us for non-Authorization headers.
+    /// </remarks>
+    private static async Task<HttpResponseMessage> SendFollowingRedirectsAsync(
+        HttpRequestMessage request, CancellationToken timeoutToken, CancellationToken callerToken)
+    {
+        var current = request;
+        var origin = request.RequestUri!;
+
+        for (var hop = 0; ; hop++)
+        {
+            HttpResponseMessage response;
+            try
+            {
+                response = await Client.SendAsync(current, HttpCompletionOption.ResponseContentRead,
+                    timeoutToken).ConfigureAwait(false);
+            }
+            catch (TaskCanceledException) when (!callerToken.IsCancellationRequested)
+            {
+                throw new HttpFailure(0, "request timed out");
+            }
+            catch (HttpRequestException exc)
+            {
+                // Status 0 means the request never got an answer: DNS, TLS, or
+                // the network. Distinct from a server that answered with an error.
+                throw new HttpFailure(0, exc.Message);
+            }
+
+            var status = (int)response.StatusCode;
+            if (status is not (301 or 302 or 303 or 307 or 308)) return response;
+
+            var location = response.Headers.Location;
+            if (location is null) return response;
+
+            if (hop >= MaxRedirects)
+            {
+                response.Dispose();
+                throw new HttpFailure(status, "too many redirects");
+            }
+
+            var next = location.IsAbsoluteUri ? location : new Uri(current.RequestUri!, location);
+            response.Dispose();
+
+            RequireHttps(next);
+
+            // 303, and 301/302 on a POST, become a GET; 307/308 preserve the
+            // method and body.
+            var method = status is 303 || (status is 301 or 302 && current.Method == HttpMethod.Post)
+                ? HttpMethod.Get
+                : current.Method;
+
+            var forwarded = new HttpRequestMessage(method, next);
+            if (method == current.Method) forwarded.Content = current.Content;
+
+            var sameHost = string.Equals(next.Host, origin.Host, StringComparison.OrdinalIgnoreCase);
+            foreach (var header in current.Headers)
+            {
+                if (!sameHost) break;
+                forwarded.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+
+            if (hop > 0) current.Dispose();
+            current = forwarded;
         }
     }
 

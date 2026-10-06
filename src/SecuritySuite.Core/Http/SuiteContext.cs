@@ -1,4 +1,6 @@
+using SecuritySuite.Casework;
 using SecuritySuite.Configuration;
+using SecuritySuite.Hunting;
 using SecuritySuite.Connectors;
 using SecuritySuite.Detection;
 using SecuritySuite.Intel;
@@ -43,6 +45,11 @@ public sealed class SuiteContext : IDisposable
     public OpnSenseConnector OpnSense { get; }
     public BitdefenderConnector Bitdefender { get; }
 
+    /// <summary>Casework and saved hunts, filed beside the other sidecars.</summary>
+    public CaseStore Cases { get; }
+
+    public SavedHuntStore SavedHunts { get; }
+
     public SuiteContext(SuiteConfig cfg, YaraEngine engine, EventStore store,
                         AuthTelemetry telemetry, DirectoryMonitor monitor,
                         NvdClient? nvd = null, OsvClient? osv = null,
@@ -70,6 +77,10 @@ public sealed class SuiteContext : IDisposable
         Training = new Training();
         OpnSense = new OpnSenseConnector();
         Bitdefender = new BitdefenderConnector();
+
+        var sidecars = Path.GetDirectoryName(Path.GetFullPath(cfg.TriageFile)) ?? ".";
+        Cases = new CaseStore(Path.Combine(sidecars, "cases.json"));
+        SavedHunts = new SavedHuntStore(Path.Combine(sidecars, "saved-hunts.json"));
     }
 
     public void Dispose() => Engine.Dispose();

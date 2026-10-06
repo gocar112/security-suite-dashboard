@@ -8,6 +8,7 @@ rule PHP_Webshell_Eval_Input : webshell
     meta:
         description = "PHP one-liner passing request data straight to an evaluator"
         severity = "critical"
+        mitre = "T1505.003"
         author = "security-suite"
     strings:
         $php = "<?php"
@@ -27,6 +28,7 @@ rule PHP_Webshell_Command_Exec : webshell
     meta:
         description = "PHP file invoking a shell with attacker-controlled input"
         severity = "critical"
+        mitre = "T1505.003"
     strings:
         $php = "<?php"
         $f1 = "shell_exec" nocase
@@ -46,6 +48,7 @@ rule ASPX_Webshell : webshell
     meta:
         description = "ASP.NET page compiling or executing request-supplied code"
         severity = "critical"
+        mitre = "T1505.003"
     strings:
         $page = "<%@ Page" nocase
         $a1 = "Request.Item" nocase
@@ -62,6 +65,7 @@ rule JSP_Webshell : webshell
     meta:
         description = "JSP page running an OS command from a request parameter"
         severity = "critical"
+        mitre = "T1505.003"
     strings:
         $jsp = "<%"
         $req = "request.getParameter" nocase

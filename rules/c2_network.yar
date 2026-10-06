@@ -8,6 +8,7 @@ rule Cobalt_Strike_Beacon_Indicators : malware
     meta:
         description = "Strings associated with Cobalt Strike beacon payloads and configs"
         severity = "critical"
+        mitre = "T1071.001,T1573"
         author = "security-suite"
     strings:
         $a1 = "cobaltstrike" nocase
@@ -25,6 +26,7 @@ rule DNS_Tunneling_Pattern : suspicious
     meta:
         description = "Excessive TXT/NULL record lookups or base32-style subdomain encoding typical of DNS tunneling"
         severity = "high"
+        mitre = "T1071.004"
     strings:
         $a1 = "TXT" nocase
         $a2 = "dns-query" nocase
@@ -40,6 +42,7 @@ rule HTTP_C2_Beacon_Markers : suspicious
     meta:
         description = "HTTP client built with fixed, unusual beacon-style headers or URIs"
         severity = "high"
+        mitre = "T1071.001"
     strings:
         $u1 = "/api/v1/checkin" nocase
         $u2 = "/gate.php" nocase
@@ -55,6 +58,7 @@ rule Reverse_Shell_OneLiner : malware
     meta:
         description = "Common reverse shell one-liners across scripting languages"
         severity = "critical"
+        mitre = "T1059,T1071.001"
     strings:
         $a1 = "/bin/sh -i" nocase
         $a2 = "socket.socket(socket.AF_INET" nocase
@@ -70,6 +74,7 @@ rule Known_C2_Framework_Strings : malware
     meta:
         description = "Strings referencing publicly known C2 frameworks or their default artifacts"
         severity = "high"
+        mitre = "T1071.001"
     strings:
         $a1 = "Meterpreter" nocase
         $a2 = "Sliver" nocase
