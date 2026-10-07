@@ -130,34 +130,34 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
                 return;
 
             case "/api/findings":
-            {
-                var findings = ctx.Store.Events(
-                    limit: HttpPrimitives.Integer(query.Get("limit"), 200),
-                    severity: query.Get("severity"),
-                    eventType: query.Get("type"),
-                    status: query.Get("status"),
-                    search: query.Get("q"));
-
-                if (ctx.Remediator is not null) findings = ctx.Remediator.AnnotateMany(findings);
-
-                // Resolved ATT&CK techniques are attached here rather than
-                // stored, so a correction to the technique table reaches old
-                // findings instead of only new ones.
-                foreach (var finding in findings)
                 {
-                    var techniques = (finding.Matches ?? [])
-                        .SelectMany(AttackMapping.Resolve)
-                        .GroupBy(t => t.Id, StringComparer.Ordinal)
-                        .Select(g => g.First())
-                        .ToList();
+                    var findings = ctx.Store.Events(
+                        limit: HttpPrimitives.Integer(query.Get("limit"), 200),
+                        severity: query.Get("severity"),
+                        eventType: query.Get("type"),
+                        status: query.Get("status"),
+                        search: query.Get("q"));
 
-                    if (techniques.Count == 0) continue;
-                    finding.SetExtra("attack", techniques);
-                    finding.SetExtra("attack_tactics", AttackMapping.TacticsFor(techniques));
+                    if (ctx.Remediator is not null) findings = ctx.Remediator.AnnotateMany(findings);
+
+                    // Resolved ATT&CK techniques are attached here rather than
+                    // stored, so a correction to the technique table reaches old
+                    // findings instead of only new ones.
+                    foreach (var finding in findings)
+                    {
+                        var techniques = (finding.Matches ?? [])
+                            .SelectMany(AttackMapping.Resolve)
+                            .GroupBy(t => t.Id, StringComparer.Ordinal)
+                            .Select(g => g.First())
+                            .ToList();
+
+                        if (techniques.Count == 0) continue;
+                        finding.SetExtra("attack", techniques);
+                        finding.SetExtra("attack_tactics", AttackMapping.TacticsFor(techniques));
+                    }
+                    await Json(response, new { findings }).ConfigureAwait(false);
+                    return;
                 }
-                await Json(response, new { findings }).ConfigureAwait(false);
-                return;
-            }
 
             case "/api/rules":
                 await Json(response, ctx.Engine.Info()).ConfigureAwait(false);
@@ -190,17 +190,17 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
                 return;
 
             case "/api/hunt":
-            {
-                var hunt = HuntQuery.Run(
-                    query.Get("q"),
-                    ctx.Store.Events(limit: 5000, eventType: "all"),
-                    HttpPrimitives.Integer(query.Get("limit"), 300));
+                {
+                    var hunt = HuntQuery.Run(
+                        query.Get("q"),
+                        ctx.Store.Events(limit: 5000, eventType: "all"),
+                        HttpPrimitives.Integer(query.Get("limit"), 300));
 
-                // A query that did not parse is the operator's typo, not a
-                // server fault, so it is 400 carrying the parser's own message.
-                await Json(response, hunt, hunt.Error is null ? 200 : 400).ConfigureAwait(false);
-                return;
-            }
+                    // A query that did not parse is the operator's typo, not a
+                    // server fault, so it is 400 carrying the parser's own message.
+                    await Json(response, hunt, hunt.Error is null ? 200 : 400).ConfigureAwait(false);
+                    return;
+                }
 
             case "/api/hunt/saved":
                 await Json(response, new { hunts = ctx.SavedHunts.All() }).ConfigureAwait(false);
@@ -223,17 +223,17 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
                 return;
 
             case "/api/cases/detail":
-            {
-                var record = ctx.Cases.Get(query.GetOrEmpty("id"));
-                if (record is null)
                 {
-                    await Json(response, new { error = "unknown case" }, 404).ConfigureAwait(false);
+                    var record = ctx.Cases.Get(query.GetOrEmpty("id"));
+                    if (record is null)
+                    {
+                        await Json(response, new { error = "unknown case" }, 404).ConfigureAwait(false);
+                        return;
+                    }
+                    await Json(response, new { @case = record, findings = CaseFindings(record) })
+                        .ConfigureAwait(false);
                     return;
                 }
-                await Json(response, new { @case = record, findings = CaseFindings(record) })
-                    .ConfigureAwait(false);
-                return;
-            }
 
             case "/api/report":
                 await ReportAsync(response, query, headOnly).ConfigureAwait(false);
@@ -269,61 +269,61 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
                 return;
 
             case "/api/vt/capabilities":
-            {
-                if (ctx.VirusTotal is null)
                 {
-                    await Json(response, new { error = "virustotal adapter not enabled" }, 503)
-                        .ConfigureAwait(false);
+                    if (ctx.VirusTotal is null)
+                    {
+                        await Json(response, new { error = "virustotal adapter not enabled" }, 503)
+                            .ConfigureAwait(false);
+                        return;
+                    }
+                    // An explicit refresh may block for about a minute on the public
+                    // tier; the dashboard's own poll never does.
+                    var refresh = query.GetOrEmpty("refresh") == "1";
+                    var caps = refresh
+                        ? await ctx.VirusTotal.CapabilitiesBlockingAsync(token).ConfigureAwait(false)
+                        : ctx.VirusTotal.Capabilities();
+                    await Json(response, caps).ConfigureAwait(false);
                     return;
                 }
-                // An explicit refresh may block for about a minute on the public
-                // tier; the dashboard's own poll never does.
-                var refresh = query.GetOrEmpty("refresh") == "1";
-                var caps = refresh
-                    ? await ctx.VirusTotal.CapabilitiesBlockingAsync(token).ConfigureAwait(false)
-                    : ctx.VirusTotal.Capabilities();
-                await Json(response, caps).ConfigureAwait(false);
-                return;
-            }
 
             case "/api/vt/file":
-            {
-                if (ctx.VirusTotal is null)
                 {
-                    await Json(response, new { error = "virustotal adapter not enabled" }, 503)
+                    if (ctx.VirusTotal is null)
+                    {
+                        await Json(response, new { error = "virustotal adapter not enabled" }, 503)
+                            .ConfigureAwait(false);
+                        return;
+                    }
+                    var digest = query.GetOrEmpty("hash");
+                    if (digest.Length == 0)
+                    {
+                        await Json(response, new { error = "hash is required" }, 400).ConfigureAwait(false);
+                        return;
+                    }
+                    await Json(response,
+                        await ctx.VirusTotal.LookupHashAsync(digest, token: token).ConfigureAwait(false))
                         .ConfigureAwait(false);
                     return;
                 }
-                var digest = query.GetOrEmpty("hash");
-                if (digest.Length == 0)
-                {
-                    await Json(response, new { error = "hash is required" }, 400).ConfigureAwait(false);
-                    return;
-                }
-                await Json(response,
-                    await ctx.VirusTotal.LookupHashAsync(digest, token: token).ConfigureAwait(false))
-                    .ConfigureAwait(false);
-                return;
-            }
 
             case "/api/vt/livehunt":
             case "/api/vt/retrohunt":
-            {
-                if (ctx.VirusTotal is null)
                 {
-                    await Json(response, new { error = "virustotal adapter not enabled" }, 503)
-                        .ConfigureAwait(false);
+                    if (ctx.VirusTotal is null)
+                    {
+                        await Json(response, new { error = "virustotal adapter not enabled" }, 503)
+                            .ConfigureAwait(false);
+                        return;
+                    }
+                    var feature = route.EndsWith("livehunt", StringComparison.Ordinal)
+                        ? "livehunt" : "retrohunt";
+                    var result = await ctx.VirusTotal.HuntingAsync(feature, token).ConfigureAwait(false);
+
+                    // 402 Payment Required is the honest status for "your tier
+                    // cannot reach this", rather than 403 which reads as a bug.
+                    await Json(response, result, result.Available ? 200 : 402).ConfigureAwait(false);
                     return;
                 }
-                var feature = route.EndsWith("livehunt", StringComparison.Ordinal)
-                    ? "livehunt" : "retrohunt";
-                var result = await ctx.VirusTotal.HuntingAsync(feature, token).ConfigureAwait(false);
-
-                // 402 Payment Required is the honest status for "your tier
-                // cannot reach this", rather than 403 which reads as a bug.
-                await Json(response, result, result.Available ? 200 : 402).ConfigureAwait(false);
-                return;
-            }
 
             case "/api/osv":
                 await Json(response, ctx.Osv is not null
@@ -332,18 +332,18 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
                 return;
 
             case "/api/osv/query":
-            {
-                if (ctx.Osv is null)
                 {
-                    await Json(response, new { error = "osv adapter not enabled" }, 503).ConfigureAwait(false);
+                    if (ctx.Osv is null)
+                    {
+                        await Json(response, new { error = "osv adapter not enabled" }, 503).ConfigureAwait(false);
+                        return;
+                    }
+                    await Json(response, await ctx.Osv.QueryAsync(
+                        query.Get("commit"), query.Get("purl"), query.Get("package"),
+                        query.Get("ecosystem"), query.Get("version"), token).ConfigureAwait(false))
+                        .ConfigureAwait(false);
                     return;
                 }
-                await Json(response, await ctx.Osv.QueryAsync(
-                    query.Get("commit"), query.Get("purl"), query.Get("package"),
-                    query.Get("ecosystem"), query.Get("version"), token).ConfigureAwait(false))
-                    .ConfigureAwait(false);
-                return;
-            }
 
             case "/api/nvd":
                 await Json(response, ctx.Nvd is not null
@@ -352,57 +352,57 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
                 return;
 
             case "/api/nvd/cves":
-            {
-                if (ctx.Nvd is null)
                 {
-                    await Json(response, new { error = "nvd adapter not enabled" }, 503).ConfigureAwait(false);
+                    if (ctx.Nvd is null)
+                    {
+                        await Json(response, new { error = "nvd adapter not enabled" }, 503).ConfigureAwait(false);
+                        return;
+                    }
+                    await Json(response, new
+                    {
+                        cves = ctx.Nvd.CachedRecords(
+                            HttpPrimitives.Integer(query.Get("limit"), 100),
+                            query.GetOrEmpty("severity")),
+                    }).ConfigureAwait(false);
                     return;
                 }
-                await Json(response, new
-                {
-                    cves = ctx.Nvd.CachedRecords(
-                        HttpPrimitives.Integer(query.Get("limit"), 100),
-                        query.GetOrEmpty("severity")),
-                }).ConfigureAwait(false);
-                return;
-            }
 
             case "/api/nvd/cve":
-            {
-                if (ctx.Nvd is null)
                 {
-                    await Json(response, new { error = "nvd adapter not enabled" }, 503).ConfigureAwait(false);
+                    if (ctx.Nvd is null)
+                    {
+                        await Json(response, new { error = "nvd adapter not enabled" }, 503).ConfigureAwait(false);
+                        return;
+                    }
+                    var id = query.GetOrEmpty("id");
+                    if (id.Length == 0)
+                    {
+                        await Json(response, new { error = "id is required" }, 400).ConfigureAwait(false);
+                        return;
+                    }
+                    await Json(response, await ctx.Nvd.FetchCveAsync(id, token: token).ConfigureAwait(false))
+                        .ConfigureAwait(false);
                     return;
                 }
-                var id = query.GetOrEmpty("id");
-                if (id.Length == 0)
-                {
-                    await Json(response, new { error = "id is required" }, 400).ConfigureAwait(false);
-                    return;
-                }
-                await Json(response, await ctx.Nvd.FetchCveAsync(id, token: token).ConfigureAwait(false))
-                    .ConfigureAwait(false);
-                return;
-            }
 
             case "/api/nvd/search":
-            {
-                if (ctx.Nvd is null)
                 {
-                    await Json(response, new { error = "nvd adapter not enabled" }, 503).ConfigureAwait(false);
+                    if (ctx.Nvd is null)
+                    {
+                        await Json(response, new { error = "nvd adapter not enabled" }, 503).ConfigureAwait(false);
+                        return;
+                    }
+                    var q = query.GetOrEmpty("q");
+                    if (q.Length == 0)
+                    {
+                        await Json(response, new { error = "q is required" }, 400).ConfigureAwait(false);
+                        return;
+                    }
+                    await Json(response, await ctx.Nvd.SearchAsync(
+                        q, HttpPrimitives.Integer(query.Get("limit"), 20, 100), token).ConfigureAwait(false))
+                        .ConfigureAwait(false);
                     return;
                 }
-                var q = query.GetOrEmpty("q");
-                if (q.Length == 0)
-                {
-                    await Json(response, new { error = "q is required" }, 400).ConfigureAwait(false);
-                    return;
-                }
-                await Json(response, await ctx.Nvd.SearchAsync(
-                    q, HttpPrimitives.Integer(query.Get("limit"), 20, 100), token).ConfigureAwait(false))
-                    .ConfigureAwait(false);
-                return;
-            }
 
             case "/api/stream":
                 if (headOnly)
@@ -453,24 +453,24 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
         {
             case "/api/jobs":
             case "/api/scan":
-            {
-                var target = (body.Str("path") ?? "").Trim();
-                if (route == "/api/scan" && target.Length == 0)
                 {
-                    await Json(response, new { error = "path is required" }, 400).ConfigureAwait(false);
+                    var target = (body.Str("path") ?? "").Trim();
+                    if (route == "/api/scan" && target.Length == 0)
+                    {
+                        await Json(response, new { error = "path is required" }, 400).ConfigureAwait(false);
+                        return;
+                    }
+                    var started = ctx.Jobs.Start(target);
+                    await Json(response, started, started is ScanJobError ? 409 : 202).ConfigureAwait(false);
                     return;
                 }
-                var started = ctx.Jobs.Start(target);
-                await Json(response, started, started is ScanJobError ? 409 : 202).ConfigureAwait(false);
-                return;
-            }
 
             case "/api/jobs/cancel":
-            {
-                var result = ctx.Jobs.Cancel(body.Str("id") ?? "");
-                await Json(response, result, result is ScanJobError ? 404 : 200).ConfigureAwait(false);
-                return;
-            }
+                {
+                    var result = ctx.Jobs.Cancel(body.Str("id") ?? "");
+                    await Json(response, result, result is ScanJobError ? 404 : 200).ConfigureAwait(false);
+                    return;
+                }
 
             case "/api/inventory":
                 await Json(response,
@@ -514,60 +514,60 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
                 return;
 
             case "/api/playbooks/save":
-            {
-                var saved = ctx.Playbooks.Save(body);
-                await Json(response, saved, saved.Ok ? 200 : 409).ConfigureAwait(false);
-                return;
-            }
-
-            case "/api/playbooks/run":
-            {
-                var playbook = body.TryGetPropertyValue("playbook", out var selected) ? selected : null;
-                var run = await ctx.Playbooks.RunAsync(new PlaybookRunRequest
                 {
-                    PlaybookId = playbook?.GetValueKind() == JsonValueKind.String
-                        ? playbook.GetValue<string>()
-                        : null,
-                    Playbook = playbook?.GetValueKind() == JsonValueKind.Object ? playbook : null,
-                    FindingId = body.Str("finding_id"),
-                    DryRun = body.FlagOrDefault("dry_run", true),
-                    Confirm = body.Flag("confirm"),
-                }, token).ConfigureAwait(false);
-                await Json(response, run, run.Ok ? 200 : 409).ConfigureAwait(false);
-                return;
-            }
-
-            case "/api/training/grade":
-            {
-                var grade = ctx.Training.Grade(body.Str("id"), body.Str("answer"));
-                await Json(response, grade, grade.Ok ? 200 : 400).ConfigureAwait(false);
-                return;
-            }
-
-            case "/api/monitor":
-            {
-                var action = (body.Str("action") ?? "").ToLowerInvariant();
-                if (action == "pause") ctx.Monitor.Pause();
-                else if (action is "resume" or "start") ctx.Monitor.Resume();
-                else
-                {
-                    await Json(response, new { error = "action must be pause or resume" }, 400)
-                        .ConfigureAwait(false);
+                    var saved = ctx.Playbooks.Save(body);
+                    await Json(response, saved, saved.Ok ? 200 : 409).ConfigureAwait(false);
                     return;
                 }
-                var status = ctx.Monitor.Status();
-                ctx.Store.Broadcast("Monitor " + (status.Paused ? "paused" : "resumed"));
-                await Json(response, status).ConfigureAwait(false);
-                return;
-            }
+
+            case "/api/playbooks/run":
+                {
+                    var playbook = body.TryGetPropertyValue("playbook", out var selected) ? selected : null;
+                    var run = await ctx.Playbooks.RunAsync(new PlaybookRunRequest
+                    {
+                        PlaybookId = playbook?.GetValueKind() == JsonValueKind.String
+                            ? playbook.GetValue<string>()
+                            : null,
+                        Playbook = playbook?.GetValueKind() == JsonValueKind.Object ? playbook : null,
+                        FindingId = body.Str("finding_id"),
+                        DryRun = body.FlagOrDefault("dry_run", true),
+                        Confirm = body.Flag("confirm"),
+                    }, token).ConfigureAwait(false);
+                    await Json(response, run, run.Ok ? 200 : 409).ConfigureAwait(false);
+                    return;
+                }
+
+            case "/api/training/grade":
+                {
+                    var grade = ctx.Training.Grade(body.Str("id"), body.Str("answer"));
+                    await Json(response, grade, grade.Ok ? 200 : 400).ConfigureAwait(false);
+                    return;
+                }
+
+            case "/api/monitor":
+                {
+                    var action = (body.Str("action") ?? "").ToLowerInvariant();
+                    if (action == "pause") ctx.Monitor.Pause();
+                    else if (action is "resume" or "start") ctx.Monitor.Resume();
+                    else
+                    {
+                        await Json(response, new { error = "action must be pause or resume" }, 400)
+                            .ConfigureAwait(false);
+                        return;
+                    }
+                    var status = ctx.Monitor.Status();
+                    ctx.Store.Broadcast("Monitor " + (status.Paused ? "paused" : "resumed"));
+                    await Json(response, status).ConfigureAwait(false);
+                    return;
+                }
 
             case "/api/rules/reload":
-            {
-                var info = ctx.Engine.Reload();
-                ctx.Store.Broadcast("Reloaded " + info.RuleCount + " rules");
-                await Json(response, info).ConfigureAwait(false);
-                return;
-            }
+                {
+                    var info = ctx.Engine.Reload();
+                    ctx.Store.Broadcast("Reloaded " + info.RuleCount + " rules");
+                    await Json(response, info).ConfigureAwait(false);
+                    return;
+                }
 
             case "/api/findings/clear":
                 // Every other destructive route demands an explicit confirm.
@@ -585,108 +585,108 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
                 return;
 
             case "/api/osv/query":
-            {
-                if (ctx.Osv is null)
                 {
-                    await Json(response, new { error = "osv adapter not enabled" }, 503).ConfigureAwait(false);
+                    if (ctx.Osv is null)
+                    {
+                        await Json(response, new { error = "osv adapter not enabled" }, 503).ConfigureAwait(false);
+                        return;
+                    }
+                    await Json(response, await ctx.Osv.QueryAsync(
+                        body.Str("commit"), body.Str("purl"), body.Str("package"),
+                        body.Str("ecosystem"), body.Str("version"), token).ConfigureAwait(false))
+                        .ConfigureAwait(false);
                     return;
                 }
-                await Json(response, await ctx.Osv.QueryAsync(
-                    body.Str("commit"), body.Str("purl"), body.Str("package"),
-                    body.Str("ecosystem"), body.Str("version"), token).ConfigureAwait(false))
-                    .ConfigureAwait(false);
-                return;
-            }
 
             case "/api/nvd/sync":
-            {
-                if (ctx.Nvd is null)
                 {
-                    await Json(response, new { error = "nvd adapter not enabled" }, 503).ConfigureAwait(false);
+                    if (ctx.Nvd is null)
+                    {
+                        await Json(response, new { error = "nvd adapter not enabled" }, 503).ConfigureAwait(false);
+                        return;
+                    }
+                    var days = Math.Clamp(body.Int("days") ?? ctx.Config.NvdSyncDays, 1, 120);
+                    var result = await ctx.Nvd.SyncAsync(days, ctx.Config.NvdMaxRecords, token)
+                        .ConfigureAwait(false);
+
+                    ctx.Store.Broadcast(result.Error is null
+                        ? "NVD sync: " + result.Cached + " CVEs cached"
+                        : "NVD sync failed: " + result.Error);
+                    await Json(response, result).ConfigureAwait(false);
                     return;
                 }
-                var days = Math.Clamp(body.Int("days") ?? ctx.Config.NvdSyncDays, 1, 120);
-                var result = await ctx.Nvd.SyncAsync(days, ctx.Config.NvdMaxRecords, token)
-                    .ConfigureAwait(false);
-
-                ctx.Store.Broadcast(result.Error is null
-                    ? "NVD sync: " + result.Cached + " CVEs cached"
-                    : "NVD sync failed: " + result.Error);
-                await Json(response, result).ConfigureAwait(false);
-                return;
-            }
 
             case "/api/remediate":
-            {
-                if (ctx.Remediator is null)
                 {
-                    await Json(response, new { error = "remediation not enabled" }, 503).ConfigureAwait(false);
+                    if (ctx.Remediator is null)
+                    {
+                        await Json(response, new { error = "remediation not enabled" }, 503).ConfigureAwait(false);
+                        return;
+                    }
+                    var id = (body.Str("id") ?? "").Trim();
+                    if (id.Length == 0)
+                    {
+                        await Json(response, new { error = "id is required" }, 400).ConfigureAwait(false);
+                        return;
+                    }
+
+                    var result = ctx.Remediator.Act(
+                        id,
+                        body.Str("action") ?? RemediationActions.Quarantine,
+                        confirm: body.Flag("confirm"),
+                        dryRun: body.Flag("dry_run"),
+                        allowDirectory: body.Flag("allow_directory"));
+
+                    // A refusal is a considered answer, not a server fault, so it
+                    // is 409 rather than 500.
+                    var status = result.Ok ? 200
+                        : result.Refused == "unknown finding" ? 404
+                        : result.Refused == "unknown action" ? 400
+                        : 409;
+                    await Json(response, result, status).ConfigureAwait(false);
                     return;
                 }
-                var id = (body.Str("id") ?? "").Trim();
-                if (id.Length == 0)
-                {
-                    await Json(response, new { error = "id is required" }, 400).ConfigureAwait(false);
-                    return;
-                }
-
-                var result = ctx.Remediator.Act(
-                    id,
-                    body.Str("action") ?? RemediationActions.Quarantine,
-                    confirm: body.Flag("confirm"),
-                    dryRun: body.Flag("dry_run"),
-                    allowDirectory: body.Flag("allow_directory"));
-
-                // A refusal is a considered answer, not a server fault, so it
-                // is 409 rather than 500.
-                var status = result.Ok ? 200
-                    : result.Refused == "unknown finding" ? 404
-                    : result.Refused == "unknown action" ? 400
-                    : 409;
-                await Json(response, result, status).ConfigureAwait(false);
-                return;
-            }
 
             case "/api/remediate/bulk":
-            {
-                if (ctx.Remediator is null)
                 {
-                    await Json(response, new { error = "remediation not enabled" }, 503).ConfigureAwait(false);
+                    if (ctx.Remediator is null)
+                    {
+                        await Json(response, new { error = "remediation not enabled" }, 503).ConfigureAwait(false);
+                        return;
+                    }
+                    await Json(response, ctx.Remediator.Bulk(
+                        severity: body.Str("severity") ?? "",
+                        extensions: body.Strings("extensions"),
+                        action: body.Str("action") ?? RemediationActions.Quarantine,
+                        confirm: body.Flag("confirm"),
+                        // Defaults to true: a sweep must not become destructive
+                        // because a field was omitted.
+                        dryRun: body.FlagOrDefault("dry_run", true),
+                        limit: Math.Clamp(body.Int("limit") ?? 50, 1, 500)))
+                        .ConfigureAwait(false);
                     return;
                 }
-                await Json(response, ctx.Remediator.Bulk(
-                    severity: body.Str("severity") ?? "",
-                    extensions: body.Strings("extensions"),
-                    action: body.Str("action") ?? RemediationActions.Quarantine,
-                    confirm: body.Flag("confirm"),
-                    // Defaults to true: a sweep must not become destructive
-                    // because a field was omitted.
-                    dryRun: body.FlagOrDefault("dry_run", true),
-                    limit: Math.Clamp(body.Int("limit") ?? 50, 1, 500)))
-                    .ConfigureAwait(false);
-                return;
-            }
 
             case "/api/hunt/saved":
-            {
-                if (body.Str("delete") is { Length: > 0 } huntId)
                 {
-                    await Json(response, new { deleted = ctx.SavedHunts.Delete(huntId) })
-                        .ConfigureAwait(false);
+                    if (body.Str("delete") is { Length: > 0 } huntId)
+                    {
+                        await Json(response, new { deleted = ctx.SavedHunts.Delete(huntId) })
+                            .ConfigureAwait(false);
+                        return;
+                    }
+                    try
+                    {
+                        await Json(response, ctx.SavedHunts.Save(
+                            body.Str("name"), body.Str("query"), body.Str("description")))
+                            .ConfigureAwait(false);
+                    }
+                    catch (HuntQueryException exc)
+                    {
+                        await Json(response, new { error = exc.Message }, 400).ConfigureAwait(false);
+                    }
                     return;
                 }
-                try
-                {
-                    await Json(response, ctx.SavedHunts.Save(
-                        body.Str("name"), body.Str("query"), body.Str("description")))
-                        .ConfigureAwait(false);
-                }
-                catch (HuntQueryException exc)
-                {
-                    await Json(response, new { error = exc.Message }, 400).ConfigureAwait(false);
-                }
-                return;
-            }
 
             case "/api/cases":
                 await Json(response, ctx.Cases.Create(
@@ -709,42 +709,42 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
                 return;
 
             case "/api/cases/note":
-            {
-                var noted = ctx.Cases.AddNote(body.Str("id") ?? "", body.Str("text"), body.Str("author"));
-                if (noted is null)
                 {
-                    // Either the case is gone or the note was blank. Both are
-                    // the caller's problem, not a server fault.
-                    await Json(response, new { error = "unknown case, or empty note" }, 404)
-                        .ConfigureAwait(false);
+                    var noted = ctx.Cases.AddNote(body.Str("id") ?? "", body.Str("text"), body.Str("author"));
+                    if (noted is null)
+                    {
+                        // Either the case is gone or the note was blank. Both are
+                        // the caller's problem, not a server fault.
+                        await Json(response, new { error = "unknown case, or empty note" }, 404)
+                            .ConfigureAwait(false);
+                        return;
+                    }
+                    await Json(response, noted).ConfigureAwait(false);
                     return;
                 }
-                await Json(response, noted).ConfigureAwait(false);
-                return;
-            }
 
             case "/api/cases/delete":
-            {
-                var deleted = ctx.Cases.Delete(body.Str("id") ?? "");
-                await Json(response, new { deleted }, deleted ? 200 : 404).ConfigureAwait(false);
-                return;
-            }
-
-            case "/api/triage":
-            {
-                var status = body.Str("status") ?? "acknowledged";
-                if (!TriageStatuses.Contains(status))
-                    throw new ArgumentException("Unknown triage status");
-
-                var updated = ctx.Store.SetStatus(body.Str("id") ?? "", status, body.Str("note") ?? "");
-                if (updated is null)
                 {
-                    await Json(response, new { error = "finding not found" }, 404).ConfigureAwait(false);
+                    var deleted = ctx.Cases.Delete(body.Str("id") ?? "");
+                    await Json(response, new { deleted }, deleted ? 200 : 404).ConfigureAwait(false);
                     return;
                 }
-                await Json(response, updated).ConfigureAwait(false);
-                return;
-            }
+
+            case "/api/triage":
+                {
+                    var status = body.Str("status") ?? "acknowledged";
+                    if (!TriageStatuses.Contains(status))
+                        throw new ArgumentException("Unknown triage status");
+
+                    var updated = ctx.Store.SetStatus(body.Str("id") ?? "", status, body.Str("note") ?? "");
+                    if (updated is null)
+                    {
+                        await Json(response, new { error = "finding not found" }, 404).ConfigureAwait(false);
+                        return;
+                    }
+                    await Json(response, updated).ConfigureAwait(false);
+                    return;
+                }
 
             default:
                 await Json(response, new { error = "not found" }, 404).ConfigureAwait(false);

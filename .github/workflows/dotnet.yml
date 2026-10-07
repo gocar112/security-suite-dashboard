@@ -31,6 +31,12 @@ jobs:
       - name: Restore
         run: dotnet restore
 
+      - name: Check formatting
+        # Cheap, and it keeps the release notes from having to explain why the
+        # tree is untidy. Whitespace drift is easier to prevent than to argue
+        # about later.
+        run: dotnet format --verify-no-changes --verbosity minimal
+
       - name: Build
         # Warnings are errors in Directory.Build.props, so this also enforces
         # the nullable and analyzer rules the code is written against.

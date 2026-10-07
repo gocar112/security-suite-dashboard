@@ -358,18 +358,18 @@ public sealed partial class PlaybookService
                     switch (step.Action)
                     {
                         case ActionAnnotate:
-                        {
-                            var status = step.Status ?? (finding.Status.Length > 0 ? finding.Status : "new");
-                            if (!dryRun && _store.SetStatus(findingId, status, step.Note ?? "") is null)
-                                throw new InvalidOperationException("finding is no longer stored");
+                            {
+                                var status = step.Status ?? (finding.Status.Length > 0 ? finding.Status : "new");
+                                if (!dryRun && _store.SetStatus(findingId, status, step.Note ?? "") is null)
+                                    throw new InvalidOperationException("finding is no longer stored");
 
-                            finding.Status = status;
-                            finding.TriageNote = step.Note;
-                            outcome.Outcome = dryRun ? "would annotate" : "annotated";
-                            outcome.Status = status;
-                            outcome.Note = step.Note;
-                            break;
-                        }
+                                finding.Status = status;
+                                finding.TriageNote = step.Note;
+                                outcome.Outcome = dryRun ? "would annotate" : "annotated";
+                                outcome.Status = status;
+                                outcome.Note = step.Note;
+                                break;
+                            }
 
                         case ActionGuidance:
                             outcome.Outcome = "guidance";

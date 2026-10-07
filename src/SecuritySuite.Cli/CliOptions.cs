@@ -116,13 +116,13 @@ internal sealed class CliOptions
                     break;
 
                 case "--port":
-                {
-                    var value = Next(args, ref i, "--port");
-                    if (!int.TryParse(value, out var port) || port is < 1 or > 65535)
-                        throw new CliUsageException("--port must be a number between 1 and 65535");
-                    options.Port = port;
-                    break;
-                }
+                    {
+                        var value = Next(args, ref i, "--port");
+                        if (!int.TryParse(value, out var port) || port is < 1 or > 65535)
+                            throw new CliUsageException("--port must be a number between 1 and 65535");
+                        options.Port = port;
+                        break;
+                    }
 
                 default:
                     throw new CliUsageException("Unknown option: " + arg);

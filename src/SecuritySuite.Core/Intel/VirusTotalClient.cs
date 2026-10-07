@@ -653,7 +653,8 @@ public sealed class VtStatus
     [JsonPropertyName("lookups_this_session")] public int LookupsThisSession { get; set; }
 
     /// <summary>Stated in the payload so the guarantee is visible, not just documented.</summary>
-    [JsonPropertyName("uploads")] public string Uploads { get; set; } =
+    [JsonPropertyName("uploads")]
+    public string Uploads { get; set; } =
         "never - this client only sends hashes";
 
     [JsonPropertyName("last_error")] public string? LastError { get; set; }

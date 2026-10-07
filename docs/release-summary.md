@@ -46,10 +46,8 @@ CLI, API, running-instance check, and dashboard. The dashboard displays
 - Dependency advisory checks: no known npm or NuGet vulnerabilities reported.
 - Publish smoke: the `win-x64` release executable reported version 2.0.1 and
   completed the sample scan.
-
-The repository-wide formatter check identified pre-existing whitespace-only
-drift in legacy C# files. Release-specific C# files passed a scoped formatter
-check; the unrelated formatting backlog is not included in this patch release.
+- Formatting: `dotnet format --verify-no-changes` reports no changes across the
+  solution, and CI now gates on it.
 
 The four skipped tests require Windows symbolic-link creation through Developer
 Mode or elevation. They are reported as skipped rather than passing without
