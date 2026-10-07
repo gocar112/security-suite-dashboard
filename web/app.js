@@ -997,8 +997,16 @@ function wire() {
     }
     try {
       const result = await post("/api/findings/clear", { confirm: true });
+      /* The server answers a refused clear with 503, which lands in the catch
+       * below. This guards an older server that answered 200 with
+       * cleared=false: claiming success there would be worse than useless. */
+      if (result.cleared === false) {
+        toast("Clear refused: " + (result.error || "nothing was cleared"), true);
+        return;
+      }
       clearLocalLines();
       toast("Cleared " + result.events + " line(s)" +
+        (result.audit_retained ? ", kept " + result.audit_retained + " remediation record(s)" : "") +
         (result.backup_dir ? " / backup saved" : ""));
       refresh();
       loadFindings();

@@ -581,7 +581,15 @@ internal sealed class RouteTable(SuiteContext ctx, string webRoot)
                     }, 409).ConfigureAwait(false);
                     return;
                 }
-                await Json(response, ctx.Store.Clear()).ConfigureAwait(false);
+                {
+                    // A refused clear is not a success. Answering 200 with
+                    // cleared=false let the dashboard toast "Cleared N line(s)"
+                    // and wipe its live feed while the server had changed
+                    // nothing, so the refusal has to be a failure status for
+                    // every client, not a field each one must remember to check.
+                    var cleared = ctx.Store.Clear();
+                    await Json(response, cleared, cleared.Cleared ? 200 : 503).ConfigureAwait(false);
+                }
                 return;
 
             case "/api/osv/query":
