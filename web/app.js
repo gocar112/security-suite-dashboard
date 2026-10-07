@@ -915,6 +915,7 @@ async function refresh() {
     loadRemediation();
     loadShield();
     $("sub-title").textContent = data.config.watch_paths.length + " path(s) monitored";
+    $("version-pill").textContent = "v" + (data.version || "unknown");
   } catch (err) {
     toast("Backend unreachable: " + err.message, true);
   }

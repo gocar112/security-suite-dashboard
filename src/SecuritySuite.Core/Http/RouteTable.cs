@@ -23,7 +23,7 @@ namespace SecuritySuite.Http;
 /// </remarks>
 internal sealed class RouteTable(SuiteContext ctx, string webRoot)
 {
-    public const string Version = "2.0.0";
+    public static string Version => SuiteVersion.Current;
 
     /// <summary>Static files the dashboard is allowed to request by name.</summary>
     private static readonly HashSet<string> StaticFiles = new(StringComparer.Ordinal)

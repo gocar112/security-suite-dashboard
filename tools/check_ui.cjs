@@ -29,12 +29,16 @@ const output = path.resolve(__dirname, "../docs/images");
     page.on("request", request => {
       if (request.method() === "POST" && /\/api\/(jobs|inventory)$/.test(new URL(request.url()).pathname)) automaticScans++;
     });
-    const tabs = ["overview", "antivirus", "ids", "response", "inventory", "playbooks", "analysis", "training", "integrations", "audit"];
+    const tabs = ["overview", "antivirus", "ids", "response", "inventory", "playbooks", "analysis", "training", "integrations", "audit", "hunt", "attack", "graph", "cases"];
     for (const width of [390, 768, 1440, 1920]) {
       await page.setViewportSize({ width, height: width >= 1440 ? 1000 : 900 });
       await page.goto(url);
       await page.waitForSelector("#console-nav button");
-      assert.equal(await page.locator("#console-nav button").count(), 10);
+      await page.waitForFunction(() => /^v\d+\.\d+\.\d+$/.test(document.getElementById("version-pill").textContent));
+      const version = await page.locator("#version-pill").textContent();
+      const apiVersion = await page.evaluate(() => fetch("/api/instance").then(response => response.json()).then(data => data.version));
+      assert.equal(version, "v" + apiVersion);
+      assert.equal(await page.locator("#console-nav button").count(), tabs.length);
       for (const tab of tabs) {
         await page.locator("#tab-" + tab).click();
         await page.waitForTimeout(130);
@@ -81,6 +85,6 @@ const output = path.resolve(__dirname, "../docs/images");
     assert.equal(await page.locator("body.density-tv").count(), 1);
     assert.equal(automaticScans, 0);
     assert.deepEqual(errors, []);
-    console.log("Browser QA passed: ten tabs at 390/768/1440/1920; live analysis, playbook validation, training, TV density; no automatic scans.");
+    console.log(`Browser QA passed: ${tabs.length} tabs at 390/768/1440/1920; live analysis, playbook validation, training, TV density; no automatic scans.`);
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

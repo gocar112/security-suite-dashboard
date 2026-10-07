@@ -1,0 +1,12 @@
+{
+  "name": "security-suite-browser-qa",
+  "version": "2.0.1",
+  "private": true,
+  "scripts": {
+    "test:js": "node --check web/app.js && node --check web/console.js && node --check web/views.js",
+    "test:ui": "node tools/check_ui.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

@@ -37,3 +37,6 @@ __pycache__/
 
 # Published build the desktop and startup shortcuts point at.
 dist/
+
+# Browser QA dependencies
+node_modules/

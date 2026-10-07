@@ -1,61 +1,68 @@
-# Security Suite Console Release
+# Security Suite 2.0.1
 
-Version: 1.1.0. Release date: 2026-09-16
+Release date: 2026-10-07
 
-The console uses separate sidebar tabs for overview, antivirus, IDS, response,
-inventory, playbooks, analysis, training, integrations and audit. It keeps the existing
-YARA rules, IOC extraction, NVD guidance, triage, quarantine and restoration.
+Security Suite 2.0.1 is the verified C# patch release of the local SOC console.
+The runtime, CLI, tools, HTTP API, detection engine, storage, monitoring,
+casework, hunt, graph, ATT&CK coverage, intelligence adapters, inventory,
+playbooks, and remediation controls are implemented on .NET 10 for Windows x64.
+Static HTML, CSS, JavaScript, YARA rules, documentation, and image assets remain
+in their native formats.
 
-## Added
+## Release identity
 
-- Streaming background local-drive scans with no 5,000-file cap, progress,
-  skipped/error reporting and cooperative cancellation.
-- Private IPv4 household inventory with bounded ping and optional TCP checks;
-  device records and CSV export.
-- Suricata EVE alert import and a verified, read-only OPNsense IDS status adapter.
-- Visual schema-backed playbooks with JSON interchange, simulation, guarded
-  execution, and a fixed defensive skill catalog.
-- Static text analysis that does not execute or persist submitted content.
-- 500 synthetic defensive training questions and local two-player scoring.
-- Persistent recoverable auto-quarantine control and reviewed DNS-list export.
-- Offline Lucide icons, responsive workspace views and large-screen density.
-- Repository security policy, Dependabot configuration, CodeQL workflow, and
-  Windows/Linux/macOS test matrix.
+The release number is stamped into the compiled Core assembly and reused by the
+CLI, API, running-instance check, and dashboard. The dashboard displays
+`v2.0.1`; `securitysuite --version` prints `securitysuite 2.0.1`.
 
-## Fixed
+## Included work
 
-- Clear-lines requests now include the server-required confirmation.
-- Scan counters continue beyond the bounded findings buffer.
-- The monitor no longer shadows the Thread stop method.
-- Automatic response rejects deletion, test-rule hits and generated component hits.
-- API request validation rejects malformed JSON, duplicate fields, non-boolean
-  confirmations and cross-origin writes; the server remains bound to loopback.
-- Workbench state is protected from remediation and excluded from drive-scan feedback.
-- Quiet Windows shortcuts use an absolute script path. Repeated launches reuse
-  the same-version workspace, and default-port collisions have a bounded fallback.
+- Complete Python-to-C# runtime migration with a Core/CLI/Tools solution layout.
+- 14 dashboard workspaces: overview, antivirus, IDS, response, inventory,
+  playbooks, analysis, training, integrations, audit, hunt, ATT&CK, graph, and
+  cases.
+- 1,004 YARA rules with recursive monitoring, scan jobs, IOC extraction,
+  NVD/OSV/CISA/VirusTotal context, Suricata import, and read-only OPNsense status.
+- Guarded quarantine, restore, delete, purge, bulk preview, and quarantine-only
+  high-confidence automatic response.
+- Complete remediation-audit retention, fail-closed clear operations, stable
+  triage outside the memory window, and visible SSE overflow recovery.
+- One monitor per workspace, clean cancellation, loopback/Host/origin controls,
+  and explicit RFC1918-only inventory scope.
+- Stable .NET 10 SDK selection and pinned Playwright browser QA.
 
-## Pictures and Use
+## Verification
 
-![Console overview](images/console-1440.png)
+- Release build: zero warnings and zero errors.
+- xUnit: 333 total, 329 passed, 4 environment-dependent symlink skips, 0 failed.
+- JavaScript syntax: all three dashboard scripts passed.
+- Browser QA: all 14 tabs at four viewport widths passed; interactive analysis,
+  playbook validation, training, TV density, and version display passed; no
+  automatic scans were triggered.
+- Scanner smoke: 1,004 rules loaded; 7 samples scanned; 6 expected matches;
+  zero scan errors.
+- HTTP boundary smoke: allowed loopback returned 200; hostile Host/origin and
+  unsafe simple writes returned 403; non-loopback binding was refused.
+- Dependency advisory checks: no known npm or NuGet vulnerabilities reported.
+- Publish smoke: the `win-x64` release executable reported version 2.0.1 and
+  completed the sample scan.
 
-Start with Antivirus for a local drive scan, IDS for imported network alerts,
-and Inventory for a private subnet you administer. Use Playbooks to select a
-stored finding, arrange allowed skills, validate, simulate, then confirm execution.
-IPS / Response keeps quarantine and reviewed DNS exports separate from deletion.
-Audit shows recorded activity. See the guide for skip counts and safety checks.
+The repository-wide formatter check identified pre-existing whitespace-only
+drift in legacy C# files. Release-specific C# files passed a scoped formatter
+check; the unrelated formatting backlog is not included in this patch release.
 
-![Visual playbook builder](images/console-playbooks.png)
+The four skipped tests require Windows symbolic-link creation through Developer
+Mode or elevation. They are reported as skipped rather than passing without
+executing their assertions.
 
 ## Scope
 
-Security Suite supplements an installed antivirus. It has no NSA affiliation or
-certification, kernel driver, online multiplayer service or malware execution VM.
-Inventory does not scan other computers' files or determine firmware safety.
-OPNsense status does not prove inline network blocking. Bitdefender setup remains
-an offline indicator, and domain-list export requires a DNS filter for enforcement.
-No live malware, offensive payloads or hack-back features are included.
+The console is loopback-only and has no remote-authentication layer. Do not
+publish it through port forwarding, a reverse proxy, or a public tunnel.
+Security Suite supplements installed endpoint protection; passing tests and a
+low alert count do not certify malware-detection accuracy or prove that live
+network devices are protected.
 
-See the [operator guide](../book/Security-Suite-Operator-Guide.md) and
-[security policy](../SECURITY.md) for use and deployment boundaries.
-Read the [1.1.0 update report](update-report-1.1.0.md) for the tab-by-tab
-walkthrough, screenshots, verification record and remaining limitations.
+See the [migration verification](migration-verification.md),
+[operator guide](../book/Security-Suite-Operator-Guide.md), and
+[security policy](../SECURITY.md) for the full evidence and operating boundary.

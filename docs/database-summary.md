@@ -1,6 +1,6 @@
 # Database Summary
 
-Generated: `2026-10-05T23:35:45-05:00`
+Generated: `2026-10-07T18:16:22-05:00`
 
 ## NVD Cache
 
@@ -20,21 +20,21 @@ Severity cache counts:
 
 ## Findings Log
 
-- Active findings/events: `25`
-- Triage sidecar entries: `0`
+- Active findings/events: `18`
+- Triage sidecar entries: `1`
 - Remediation state entries: `1`
 - Quarantined active states: `0`
 - Quarantine directory entries: `0`
-- Log backups: `7`
+- Log backups: `9`
 
 Event types:
-- remediation: 5
-- yara_match: 20
+- remediation: 6
+- yara_match: 12
 
 Detection severities:
-- critical: 14
-- high: 3
-- medium: 3
+- critical: 8
+- high: 2
+- medium: 2
 
 Statuses:
-- new: 25
+- new: 18

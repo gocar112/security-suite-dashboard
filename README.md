@@ -1,5 +1,7 @@
 # Security Suite
 
+Current release: **2.0.1**
+
 > **Canonical repository.** This is where the work happens. A read-only mirror
 > lives at [`soc-yara-scanner`](https://github.com/gocar112/soc-yara-scanner) —
 > the repo this project started in as a single file, which still carries the
@@ -62,6 +64,10 @@ that a computer or network is safe.
 | Playbooks | Drag or select skills, attach a stored finding, simulate, save, import/export JSON, and run approved actions. |
 | Analysis lab | Matches pasted text against YARA and extracts indicators without executing or storing the text. |
 | Training | Offers 500 synthetic defensive scenarios for two people sharing the same browser. These are tabletop questions, not validated exploit tests. |
+| ATT&CK | Maps the ruleset to MITRE ATT&CK from rule metadata and renders a tactic matrix, so coverage and gaps are both visible. |
+| Hunt | Field query language over stored findings: `severity:critical AND NOT status:resolved`, wildcards, boolean operators, saved hunts. |
+| Graph | Clusters findings into campaigns by shared indicators, so six rows that are one intrusion read as one object. |
+| Cases | Groups findings under an owner, a status and notes, and exports a self-contained incident report. |
 
 ## Quick Start
 
@@ -97,9 +103,23 @@ Recommended verification before release:
 ```powershell
 dotnet build --configuration Release
 dotnet test --configuration Release
-node --check web\app.js
-node --check web\console.js
+npm ci
+npm run test:js
+# Start the suite in another terminal, then:
+npx playwright install chromium
+$env:SUITE_URL="http://127.0.0.1:8787"
+npm run test:ui
 dotnet run --project src/SecuritySuite.Tools -- summarize-database --output docs\database-summary.md
+```
+
+Browser QA needs Playwright and a running suite. It drives the console at four
+viewport widths and checks every view, so it catches the things a unit test
+cannot, such as a payload whose shape the dashboard cannot read:
+
+```powershell
+npm install
+npx playwright install chromium
+npm run test:ui
 ```
 
 Warnings are errors in `Directory.Build.props`, so a clean build also means the
@@ -113,7 +133,7 @@ nullable and analyzer rules the code is written against are satisfied.
 | `Microsoft.O365.Security.Native.libyara.NET.Core` 4.5.5 | Required | YARA compile and scan engine. Restored by NuGet, and the native libyara ships inside it, so there is nothing to install separately. |
 | Windows x64 | Required | The YARA binding is C++/CLI and this repository targets `win-x64`. See the platform note above. |
 | Administrator | Optional | Windows Security event-log telemetry. Without it the suite reports `denied` rather than an empty result. |
-| Node | Optional | `node --check` on the dashboard scripts, and the Playwright UI check in `tools/check_ui.cjs`. |
+| Node | Required for release QA | JavaScript syntax checks and the pinned Playwright browser suite. It is not needed to run the published application. |
 
 Nothing here needs a Python interpreter. Version 1.x did; 2.0 is .NET end to end.
 TLS uses the Windows certificate store directly, so the CA-bundle workaround that
@@ -157,6 +177,30 @@ The analysis lab is static text analysis, not a virtual machine or malware
 execution sandbox. Training is local pass-and-play; it has no online multiplayer
 service. Display density can be increased for a TV, and every tab adapts to
 desktop, tablet and narrow screens.
+
+ATT&CK renders the ruleset's technique coverage as a tactic matrix in kill-chain
+order. A technique with rules but no detections is coverage; a tactic with no
+rules at all is named as a gap rather than drawn as an empty column. The mapping
+lives in rule metadata (`mitre = "T1486"` beside `severity`), so rule authors own
+it, and the generated vulnerable-component rules are mapped by their file rather
+than tagged 931 times.
+
+Hunt is a field query language over stored findings. `severity:critical AND NOT
+status:resolved` means what it says, where a substring search for `critical` also
+matches a file named `critical_report.txt`. Wildcards, quoting, parentheses and
+`-` for NOT all work, adjacency implies AND, and an unknown field is a parse
+error naming the real fields rather than a silent empty result. Hunts can be
+saved; a saved hunt is parsed before it is stored, so it cannot fail later.
+
+Graph clusters findings that share an indicator into campaigns. Only linking
+indicator types merge them, so a shared C2 host means "same operation" while a
+shared mention of a CVE does not. Singleton indicators stay in the graph as
+pivots.
+
+Cases group findings under an owner, a status and notes. A case references
+findings by id and never copies them, so it cannot drift out of date with its
+evidence, and it exports as one self-contained HTML incident report with no
+external requests and every value escaped.
 
 ## OPNsense And DNS Filters
 
@@ -345,8 +389,15 @@ securitysuite --install-shortcut --startup
 
 Remove either again with `--remove-shortcut`, with `--startup` to pick which one.
 
-The shortcut points at the published `securitysuite.exe` and passes
-`--no-browser`, so signing in does not open a tab. Nothing is installed
+Publish first, so the shortcut points somewhere a rebuild will not break:
+
+```powershell
+dotnet publish src/SecuritySuite.Cli -c Release -o dist
+```
+
+The shortcut points at `dist/securitysuite.exe` and passes `--no-browser`, so
+signing in does not open a tab. A shortcut aimed into `bin/` would break on the
+next clean, which is why `dist/` exists and is gitignored. Nothing is installed
 system-wide and nothing needs elevation: the `.lnk` goes in the per-user Desktop
 or Startup folder. Shortcuts are created through the shell's own `IShellLink`
 interface, so no child process is spawned to write one.
@@ -486,6 +537,35 @@ All endpoints are intended for localhost use. The server rejects non-loopback
 | POST | `/api/nvd/sync` | Sync a trailing NVD modification window |
 | GET / POST | `/api/osv/query` | OSV lookup |
 | GET | `/api/vt/file` | VirusTotal hash reputation |
+| GET | `/api/attack/coverage` | ATT&CK matrix: techniques the ruleset covers, and which have fired |
+| GET | `/api/attack/techniques` | The embedded technique table and tactic order |
+| GET | `/api/hunt` | Run a hunt query (`?q=`); a parse error answers 400 with the reason |
+| GET / POST | `/api/hunt/saved` | Saved hunts / save or delete one |
+| GET | `/api/graph` | Link graph and campaign clusters |
+| GET / POST | `/api/cases` | Case list and summary / open a case |
+| GET | `/api/cases/detail` | One case with its linked findings |
+| POST | `/api/cases/update` | Change title, owner, summary, status or severity |
+| POST | `/api/cases/link` | Attach or detach findings by id |
+| POST | `/api/cases/note` | Append a case note |
+| POST | `/api/cases/delete` | Delete a case |
+| GET | `/api/report` | Self-contained incident report for a case, as a download |
+| GET | `/api/instance` | Version and findings log, used to detect a running instance |
+| GET | `/api/telemetry` | Recent authentication failures, with the source that answered |
+| GET | `/api/intel` | Intelligence source status; never returns a credential |
+| GET | `/api/connectors` | OPNsense and Bitdefender configuration state |
+| POST | `/api/connectors/check` | One verified read-only OPNsense health request |
+| GET | `/api/ids` | Imported IDS alerts |
+| GET | `/api/domains/export` | Reviewed domain list as a hosts file |
+| POST | `/api/domains` | Save the reviewed domain list |
+| POST | `/api/native-av` | Query Windows Security Center for registered products |
+| POST | `/api/inventory/cancel` | Cancel a running discovery scan |
+| GET | `/api/nvd/cve` | One CVE by id |
+| GET | `/api/nvd/cves` | Cached CVEs from the last sync |
+| GET | `/api/nvd/search` | Keyword search against NVD |
+| GET | `/api/osv` | OSV adapter status |
+| GET | `/api/vt` | VirusTotal adapter status and tier |
+| GET | `/api/vt/capabilities` | What the configured key may actually reach |
+| GET | `/api/vt/livehunt`, `/api/vt/retrohunt` | Hunting, gated; 402 when the tier cannot reach it |
 | GET | `/api/stream` | Server-Sent Events stream |
 
 ## Project Layout
@@ -497,12 +577,16 @@ config.json                    optional local overrides
 src/SecuritySuite.Core/        scanner, store, server, adapters, remediation rails
 src/SecuritySuite.Cli/         securitysuite.exe - monitor, dashboard, --scan, shortcuts
 src/SecuritySuite.Tools/       suite-tools.exe - rule generation, summaries, mirror sync
-tests/SecuritySuite.Tests/     256 tests (xUnit)
+tests/SecuritySuite.Tests/     333 tests (xUnit)
+dist/                          published build the shortcuts point at (gitignored)
+global.json                    pins the SDK to stable .NET 10
+package.json                   Playwright browser QA only; the suite needs no npm
 rules/                         YARA rules
 rules/generated/               generated vulnerable-component rules
 samples/                       harmless test files
 uploads/                       default watched folder
 web/                           dashboard HTML/CSS/JS
+web/views.js                   ATT&CK, hunt, graph and cases views
 assets/                        app logo and desktop icon
 book/                          operator and field-guide documentation
 docs/images/                   README screenshots
@@ -511,6 +595,9 @@ data/findings.ndjson           active finding log
 data/triage.json               active triage state
 data/remediation.json          remediation audit/state
 data/log-backups/              Clear lines backups
+data/cases.json                casework sidecar
+data/saved-hunts.json          saved hunt queries
+data/.monitor.lock             one-monitor-per-workspace lock, held while running
 quarantine/                    quarantined files and metadata
 nvds/                          local NVD cache
 ```
@@ -537,6 +624,9 @@ workflow:
 - The dashboard has no CSRF token. It relies on loopback binding, a `Host`
   header check, and requiring `Content-Type: application/json` on every write,
   which forces a preflight this server never answers.
+- Only one monitor may run per workspace. A lock file beside the findings log
+  enforces it, so a second instance started on a different port is refused
+  rather than sweeping the same paths and writing duplicate findings.
 - `suite-tools sync-mirror` exports with `git archive HEAD`, so only committed,
   tracked files can reach the mirror. An uncommitted `.env`, a cache directory
   or a quarantined file cannot leak through it.
@@ -558,7 +648,7 @@ where noted; these are the differences worth knowing about.
 | IOC CSV export | Header and value lists written out twice, so a new field silently failed to export | Columns derived from the model |
 | NVD status | Cached sync index merged into the live payload, which let a stale `api_key: false` report a configured key as absent | Sync index nested under `sync`, making that class of bug impossible |
 | Playbook validation | Hand-written JSON Schema validator | Typed model with `JsonUnmappedMemberHandling.Disallow`; `web/playbook.schema.json` remains the contract |
-| Tests | 55 | 256 |
+| Tests | 55 | 333 |
 
 ## What Changed From `YARA_scanning.py`
 

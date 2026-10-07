@@ -46,6 +46,12 @@ jobs:
         run: |
           node --check web/app.js
           node --check web/console.js
+          node --check web/views.js
+
+      - name: Install browser QA dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
 
       - name: Generate database summary
         run: >
@@ -62,3 +68,23 @@ jobs:
           if ($json.state -ne "completed") { throw "scan did not complete: $($json.state)" }
           if ($json.errors -ne 0) { throw "scan reported $($json.errors) error(s)" }
           Write-Host "scanned $($json.scanned) file(s), $($json.matches) match(es)"
+
+      - name: Browser QA
+        # Drives the console at four viewport widths and checks every view.
+        # This is what catches a payload whose shape the dashboard cannot read,
+        # which no unit test on the server side can see.
+        shell: pwsh
+        run: |
+          $exe = "src/SecuritySuite.Cli/bin/x64/Release/net10.0-windows/win-x64/securitysuite.exe"
+          $suite = Start-Process -FilePath $exe -ArgumentList "--no-browser" -PassThru
+          try {
+            $ready = $false
+            foreach ($i in 1..60) {
+              try { Invoke-WebRequest -Uri "http://127.0.0.1:8787/api/instance" -UseBasicParsing -TimeoutSec 2 | Out-Null; $ready = $true; break }
+              catch { Start-Sleep -Milliseconds 500 }
+            }
+            if (-not $ready) { throw "the suite did not start" }
+            node tools/check_ui.cjs
+            if ($LASTEXITCODE -ne 0) { throw "browser QA failed" }
+          }
+          finally { Stop-Process -Id $suite.Id -Force -ErrorAction SilentlyContinue }

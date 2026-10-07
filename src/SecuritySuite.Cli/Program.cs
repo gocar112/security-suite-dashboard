@@ -199,7 +199,7 @@ internal static class Program
         return 0;
     }
 
-    private static string RouteTableVersion => "2.0.0";
+    private static string RouteTableVersion => SuiteVersion.Current;
 
     /// <summary>Create or remove the desktop or startup shortcut, then exit.</summary>
     private static int Shortcut(CliOptions args)
