@@ -4,7 +4,7 @@ namespace SecuritySuite.Cli;
 /// Command-line options, parsed by hand.
 /// </summary>
 /// <remarks>
-/// No parsing library. The whole surface is nine flags, and the suite's claim
+/// No parsing library. The whole surface is fourteen flags, and the suite's claim
 /// to depend on nothing but its runtime and its YARA binding is worth more than
 /// the fifty lines this saves.
 /// </remarks>
@@ -30,6 +30,9 @@ internal sealed class CliOptions
     /// <summary>Act on the Startup folder rather than the Desktop.</summary>
     public bool Startup { get; private set; }
 
+    /// <summary>Append all output to this file instead of the console.</summary>
+    public string? LogFile { get; private set; }
+
     public const string Usage = """
         securitysuite - YARA-backed SOC detection suite with a live dashboard
 
@@ -45,6 +48,8 @@ internal sealed class CliOptions
           --headless          monitor only, no dashboard server
           --no-browser        do not open a browser window
           --scan-existing     scan files already present at startup
+          --log FILE          append all output to FILE instead of the console
+                              (relative paths are under the project root)
 
           --install-shortcut  create a desktop shortcut and exit
           --remove-shortcut   remove the shortcut and exit
@@ -109,6 +114,10 @@ internal sealed class CliOptions
 
                 case "--scan":
                     options.ScanTarget = Next(args, ref i, "--scan");
+                    break;
+
+                case "--log":
+                    options.LogFile = Next(args, ref i, "--log");
                     break;
 
                 case "--watch":

@@ -96,7 +96,8 @@ Build a standalone executable:
 dotnet publish src/SecuritySuite.Cli -c Release
 ```
 
-That produces `securitysuite.exe`, which is what the desktop shortcut points at.
+That produces `securitysuite.exe`, the console program, and beside it
+`securitysuitew.exe`, the windowless launcher the shortcuts point at.
 
 Recommended verification before release:
 
@@ -395,8 +396,14 @@ Publish first, so the shortcut points somewhere a rebuild will not break:
 dotnet publish src/SecuritySuite.Cli -c Release -o dist
 ```
 
-The shortcut points at `dist/securitysuite.exe` and passes `--no-browser`, so
-signing in does not open a tab. A shortcut aimed into `bin/` would break on the
+The shortcuts point at `dist/securitysuitew.exe`, a small launcher that starts
+the suite with no window: `securitysuite.exe` is a console program, and run
+straight from a shortcut it holds a terminal window open for as long as it runs.
+Without a window, status lines go to `data/securitysuite.log`, which is where to
+look if the dashboard does not come up. The startup shortcut passes
+`--no-browser`, so signing in does not open a tab; the desktop one opens the
+dashboard, or the already-running one if there is one. To stop a suite started
+this way, end `securitysuite.exe` in Task Manager. A shortcut aimed into `bin/` would break on the
 next clean, which is why `dist/` exists and is gitignored. Nothing is installed
 system-wide and nothing needs elevation: the `.lnk` goes in the per-user Desktop
 or Startup folder. Shortcuts are created through the shell's own `IShellLink`
@@ -456,6 +463,8 @@ securitysuite --scan .\uploads                    # scan, print JSON, exit
 securitysuite --headless                          # monitor only, no dashboard
 securitysuite --scan-existing                     # also scan what is already there
 securitysuite --install-shortcut [--startup]
+securitysuite --log data\securitysuite.log       # output to a file, not the console
+securitysuitew                                    # same options, started with no window
 securitysuite --help
 ```
 
@@ -576,8 +585,9 @@ Directory.Build.props          shared build settings (net10.0-windows, x64, warn
 config.json                    optional local overrides
 src/SecuritySuite.Core/        scanner, store, server, adapters, remediation rails
 src/SecuritySuite.Cli/         securitysuite.exe - monitor, dashboard, --scan, shortcuts
+src/SecuritySuite.Launcher/    securitysuitew.exe - starts the suite with no console window
 src/SecuritySuite.Tools/       suite-tools.exe - rule generation, summaries, mirror sync
-tests/SecuritySuite.Tests/     333 tests (xUnit)
+tests/SecuritySuite.Tests/     351 tests (xUnit)
 dist/                          published build the shortcuts point at (gitignored)
 global.json                    pins the SDK to stable .NET 10
 package.json                   Playwright browser QA only; the suite needs no npm
@@ -648,7 +658,7 @@ where noted; these are the differences worth knowing about.
 | IOC CSV export | Header and value lists written out twice, so a new field silently failed to export | Columns derived from the model |
 | NVD status | Cached sync index merged into the live payload, which let a stale `api_key: false` report a configured key as absent | Sync index nested under `sync`, making that class of bug impossible |
 | Playbook validation | Hand-written JSON Schema validator | Typed model with `JsonUnmappedMemberHandling.Disallow`; `web/playbook.schema.json` remains the contract |
-| Tests | 55 | 333 |
+| Tests | 55 | 351 |
 
 ## What Changed From `YARA_scanning.py`
 

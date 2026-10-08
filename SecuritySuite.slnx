@@ -6,6 +6,9 @@
     <Project Path="src/SecuritySuite.Cli/SecuritySuite.Cli.csproj">
       <Platform Project="x64" />
     </Project>
+    <Project Path="src/SecuritySuite.Launcher/SecuritySuite.Launcher.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="src/SecuritySuite.Tools/SecuritySuite.Tools.csproj">
       <Platform Project="x64" />
     </Project>

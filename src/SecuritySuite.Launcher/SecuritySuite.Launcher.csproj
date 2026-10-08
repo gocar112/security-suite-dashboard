@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- WinExe is the whole point: a Windows-subsystem process is never given
+         a console, so starting it opens no window - not a conhost window and
+         not a Windows Terminal tab. -->
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>SecuritySuite.Launcher</RootNamespace>
+    <AssemblyName>securitysuitew</AssemblyName>
+    <ApplicationIcon>../../assets/securitysuite.ico</ApplicationIcon>
+  </PropertyGroup>
+</Project>

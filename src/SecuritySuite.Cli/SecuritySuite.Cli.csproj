@@ -6,5 +6,9 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../SecuritySuite.Core/SecuritySuite.Core.csproj" />
+    <!-- Not a code dependency: referenced so that building or publishing the
+         suite puts the windowless launcher beside it, which is where the
+         shortcuts look for it. -->
+    <ProjectReference Include="../SecuritySuite.Launcher/SecuritySuite.Launcher.csproj" />
   </ItemGroup>
 </Project>

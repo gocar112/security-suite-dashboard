@@ -19,8 +19,13 @@ namespace SecuritySuite.Platform;
 /// </para>
 /// <para>
 /// Nothing is installed system-wide and nothing needs elevation. Shortcuts go
-/// in the per-user Desktop or Startup folder, and point at the published
-/// executable, which runs without a console window of its own.
+/// in the per-user Desktop or Startup folder.
+/// </para>
+/// <para>
+/// They point at <c>securitysuitew.exe</c>, the windowless launcher, when it
+/// sits beside the suite. <c>securitysuite.exe</c> is a console program, so a
+/// shortcut aimed straight at it opens a terminal window that stays for as long
+/// as the suite runs - at every sign-in, for the startup shortcut.
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("windows")]
@@ -50,6 +55,30 @@ public static class DesktopLauncher
             return File.Exists(guess) ? guess : current ?? guess;
         }
     }
+
+    /// <summary>
+    /// What the shortcut launches: the windowless launcher when it is present,
+    /// otherwise the suite itself, console window and all.
+    /// </summary>
+    public static string LaunchPath
+    {
+        get
+        {
+            var launcher = Path.Combine(Path.GetDirectoryName(ExecutablePath) ?? AppContext.BaseDirectory,
+                                        LauncherName);
+            return File.Exists(launcher) ? launcher : ExecutablePath;
+        }
+    }
+
+    private const string LauncherName = "securitysuitew.exe";
+
+    /// <summary>
+    /// The startup shortcut runs quietly at sign-in. The desktop one opens the
+    /// dashboard: with no window, a double-click that opened nothing would look
+    /// like it had failed. A second click finds the running instance and opens
+    /// that instead of starting another.
+    /// </summary>
+    public static string Arguments(bool startup) => startup ? "--no-browser" : "";
 
     public static string DesktopDirectory =>
         Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
@@ -81,8 +110,8 @@ public static class DesktopLauncher
         try
         {
             var link = (IShellLinkW)instance;
-            link.SetPath(ExecutablePath);
-            link.SetArguments("--no-browser");
+            link.SetPath(LaunchPath);
+            link.SetArguments(Arguments(startup));
             link.SetWorkingDirectory(SuitePaths.Root);
             link.SetDescription(Description);
             link.SetIconLocation(IconPath, 0);
