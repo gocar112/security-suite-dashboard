@@ -74,6 +74,24 @@ public sealed class EngineTests : IDisposable
     }
 
     /// <summary>
+    /// The dashboard's Loaded rules list reads rule, namespace and tags in snake
+    /// case; PascalCase names rendered every row blank.
+    /// </summary>
+    [Fact]
+    public void Rule_list_serializes_with_the_names_the_dashboard_reads()
+    {
+        using var engine = NewEngine();
+        var json = System.Text.Json.JsonSerializer.Serialize(engine.Info());
+
+        Assert.Contains("\"rule\":\"Demo_Critical_Marker\"", json);
+        Assert.Contains("\"namespace\":\"demo\"", json);
+        Assert.Contains("\"tags\":[", json);
+        Assert.DoesNotContain("\"Rule\":", json);
+        Assert.Contains("{\"file\":\"x.yar\",\"error\":\"bad\"}",
+            System.Text.Json.JsonSerializer.Serialize(new RuleError("x.yar", "bad")));
+    }
+
+    /// <summary>
     /// libyara.NET has no namespace parameter, so the engine attributes a match
     /// to its file via the compile-time ownership map. This is that mechanism.
     /// </summary>

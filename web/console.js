@@ -272,7 +272,9 @@
     hunt: 'Field queries across stored detections', attack: 'MITRE ATT&CK coverage and observed techniques',
     graph: 'Shared indicators, and the campaigns they reveal', cases: 'Investigations, evidence and incident reports'
   };
-  function navigate(id) {
+  /* push: the operator chose this view, so Back should return to the last one.
+     Hash changes (Back/Forward, typed links) and the first load only replace. */
+  function navigate(id, push) {
     if (!views.some(v => v[0] === id)) id = 'overview';
     active = id;
     views.forEach(([key]) => {
@@ -286,17 +288,18 @@
     });
     get('workspace-title').textContent = views.find(v => v[0] === id)[1];
     get('workspace-description').textContent = descriptions[id];
-    history.replaceState(null, '', '#' + id);
+    if (push && location.hash !== '#' + id) history.pushState(null, '', '#' + id);
+    else history.replaceState(null, '', '#' + id);
     poll();
   }
-  document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.view)));
+  document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.view, true)));
   tabs.addEventListener('keydown', event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     const index = views.findIndex(v => v[0] === active);
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? views.length - 1 :
       (index + (event.key === 'ArrowRight' ? 1 : -1) + views.length) % views.length;
-    navigate(views[next][0]); get('tab-' + views[next][0]).focus();
+    navigate(views[next][0], true); get('tab-' + views[next][0]).focus();
   });
   window.addEventListener('hashchange', () => navigate(location.hash.slice(1)));
   function density(value) {
@@ -577,7 +580,7 @@
   let dragNavTimer;
   document.querySelectorAll('[data-view="playbooks"]').forEach(button => {
     button.addEventListener('dragenter', event => {
-      if ([...event.dataTransfer.types].includes('application/x-suite-finding')) dragNavTimer = setTimeout(() => navigate('playbooks'), 350);
+      if ([...event.dataTransfer.types].includes('application/x-suite-finding')) dragNavTimer = setTimeout(() => navigate('playbooks', true), 350);
     });
     button.addEventListener('dragover', event => event.preventDefault());
     button.addEventListener('dragleave', () => clearTimeout(dragNavTimer));

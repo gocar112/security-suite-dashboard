@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SecuritySuite.Detection;
 
 /// <summary>
@@ -62,16 +64,18 @@ public sealed class RuleLoad
 /// <summary>One rule in the loaded set.</summary>
 public sealed class RuleInfo
 {
-    public string Rule { get; init; } = "";
+    [JsonPropertyName("rule")] public string Rule { get; init; } = "";
 
     /// <summary>The rule file this came from, used where YARA namespaces were.</summary>
-    public string Namespace { get; init; } = "";
+    [JsonPropertyName("namespace")] public string Namespace { get; init; } = "";
 
-    public List<string> Tags { get; init; } = [];
-    public Dictionary<string, string> Meta { get; init; } = [];
+    [JsonPropertyName("tags")] public List<string> Tags { get; init; } = [];
+    [JsonPropertyName("meta")] public Dictionary<string, string> Meta { get; init; } = [];
 }
 
-public sealed record RuleError(string File, string Error);
+public sealed record RuleError(
+    [property: JsonPropertyName("file")] string File,
+    [property: JsonPropertyName("error")] string Error);
 
 /// <summary>A rule that fired, as the backend reports it.</summary>
 public sealed class BackendMatch
