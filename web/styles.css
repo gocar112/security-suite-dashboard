@@ -444,3 +444,83 @@ body.focus-mode .findings-panel { box-shadow: 0 0 0 1px rgba(71, 224, 192, .2), 
   font-family: var(--mono); font-size: 10px; background: rgba(120, 150, 190, .13);
   border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px;
 }
+
+/* ------------------------------------------------------ link-analysis graph */
+.graph-legend {
+  display: flex; gap: 15px; align-items: center; flex-wrap: wrap;
+  font-size: 12px; color: var(--dim); margin-bottom: 9px;
+}
+.dotkey { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+.dotkey.finding { background: #ff6a7a; }
+.dotkey.indicator { background: #b79cff; }
+.dotkey.rule { background: #47e0c0; }
+.action-btn.tiny { padding: 2px 8px; font-size: 11px; }
+.graph-stage {
+  border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 40%, rgba(71,224,192,.045), transparent 68%),
+              rgba(6, 14, 24, .5);
+}
+#graph-canvas { display: block; cursor: grab; }
+.graph-detail {
+  min-height: 44px; margin-top: 9px; padding: 8px 11px;
+  border: 1px solid var(--line); border-radius: 7px; font-size: 12.5px;
+}
+.graph-detail b { font-size: 13px; }
+.sub-head { font-size: 13px; margin: 18px 0 4px; }
+
+.campaign-list { display: flex; flex-direction: column; gap: 8px; margin-top: 9px; }
+.campaign {
+  border: 1px solid var(--line); border-left: 3px solid var(--lilac);
+  border-radius: 7px; padding: 9px 11px;
+}
+.campaign-head { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+.campaign-head b { font-size: 13px; }
+.campaign-head button { margin-left: auto; }
+.campaign-why { font-size: 12px; color: var(--dim); margin-bottom: 3px; }
+.campaign-why code {
+  font-family: var(--mono); font-size: 11px; color: var(--lilac);
+  background: rgba(183,156,255,.1); border-radius: 3px; padding: 1px 5px;
+}
+.campaign-files { font-size: 11.5px; }
+.campaign-attack { margin-top: 5px; display: flex; gap: 4px; flex-wrap: wrap; }
+
+/* --------------------------------------------------------------- casework */
+.case-toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.case-split { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 14px; }
+@media (max-width: 900px) { .case-split { grid-template-columns: 1fr; } }
+.case-list { display: flex; flex-direction: column; gap: 6px; }
+.case-row {
+  text-align: left; cursor: pointer; font: inherit; display: flex;
+  flex-direction: column; gap: 3px; padding: 9px 11px;
+  background: rgba(120,150,190,.06); border: 1px solid var(--line); border-radius: 7px;
+}
+.case-row:hover { border-color: var(--teal); }
+.case-row.active { border-color: var(--teal); background: rgba(71,224,192,.09); }
+.case-title { font-size: 13px; color: var(--text); font-weight: 600; }
+.case-meta { font-size: 11px; }
+.case-detail { border: 1px solid var(--line); border-radius: 9px; padding: 14px 16px; }
+.case-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.case-head h3 { margin: 0 0 8px; font-size: 15px; }
+.case-controls { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.case-controls a.action-btn { text-decoration: none; display: inline-block; }
+.case-detail h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--dim); margin: 16px 0 6px; }
+.case-summary { font-size: 13px; margin: 0; }
+.case-findings { display: flex; flex-direction: column; gap: 4px; }
+.case-finding {
+  display: flex; gap: 9px; align-items: center; font-size: 12.5px;
+  background: rgba(120,150,190,.06); border-radius: 6px; padding: 5px 9px;
+}
+.case-finding i {
+  margin-left: auto; font-style: normal; cursor: pointer; color: var(--dim); padding: 0 4px;
+}
+.case-finding i:hover { color: var(--critical); }
+.case-notes { display: flex; flex-direction: column; gap: 7px; }
+.case-note { border-left: 2px solid var(--line); padding-left: 10px; font-size: 12.5px; }
+.case-note b { display: block; font-size: 11px; color: var(--dim); font-weight: 600; }
+.case-note-add { display: flex; gap: 7px; margin-top: 10px; }
+.case-note-add input {
+  flex: 1; background: rgba(6,14,24,.7); border: 1px solid var(--line);
+  border-radius: 7px; padding: 7px 10px; color: var(--text); font: inherit; font-size: 12.5px;
+}
+.case-note-add input:focus { outline: none; border-color: var(--teal); }

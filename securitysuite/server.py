@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import attack, hunt
+from . import attack, graph, hunt, report
 from .ioc import summarise, to_csv
 from .store import now_iso
 
@@ -66,7 +66,7 @@ class Context:
     """Everything the request handler needs, injected onto the server object."""
 
     def __init__(self, cfg, engine, store, telemetry, monitor, nvd=None,
-                 osv=None, vt=None, remediator=None, guidance=None):
+                 osv=None, vt=None, remediator=None, guidance=None, cases=None):
         self.cfg = cfg
         self.engine = engine
         self.store = store
@@ -77,6 +77,7 @@ class Context:
         self.vt = vt
         self.remediator = remediator
         self.guidance = guidance
+        self.cases = cases
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -273,6 +274,29 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif route == "/api/rules":
             self._json(self.ctx.engine.info())
+        elif route == "/api/graph":
+            self._json(graph.build(
+                self.ctx.store.events(limit=self._int_param(params.get("limit"), 800, 1, 5000),
+                                      event_type="yara_match"),
+                max_nodes=getattr(self.ctx.cfg, "graph_max_nodes", 600),
+                linking_only=params.get("linking") == "1"))
+        elif route == "/api/cases":
+            if self.ctx.cases is None:
+                self._json({"error": "cases not enabled"}, 503)
+                return
+            self._json({"cases": self.ctx.cases.all(params.get("status", "")),
+                        "summary": self.ctx.cases.summary()})
+        elif route == "/api/cases/detail":
+            if self.ctx.cases is None:
+                self._json({"error": "cases not enabled"}, 503)
+                return
+            case = self.ctx.cases.get((params.get("id") or "").strip())
+            if case is None:
+                self._json({"error": "unknown case"}, 404)
+                return
+            self._json({"case": case, "findings": self._case_findings(case)})
+        elif route == "/api/report":
+            self._report(params)
         elif route == "/api/hunt":
             self._json(hunt.run(
                 params.get("q", ""),
@@ -519,6 +543,11 @@ class Handler(BaseHTTPRequestHandler):
                 limit=self._int_param(body.get("limit"), 50, 1, 500),
             )
             self._json(result)
+        elif route.startswith("/api/cases"):
+            if self.ctx.cases is None:
+                self._json({"error": "cases not enabled"}, 503)
+                return
+            self._cases_post(route, body)
         elif route == "/api/hunt/saved":
             name = str(body.get("name", "")).strip()[:60]
             if not name:
@@ -537,6 +566,96 @@ class Handler(BaseHTTPRequestHandler):
             self._json(updated)
         else:
             self._json({"error": "not found"}, 404)
+
+    # ----------------------------------------------------------------- cases
+    def _case_findings(self, case: dict) -> list:
+        """Resolve a case's finding ids to the findings themselves.
+
+        Cases store ids, never copies, so a case can never drift out of date
+        with the evidence it points at.
+        """
+        out = []
+        for finding_id in case.get("finding_ids") or []:
+            found = self.ctx.store.find(str(finding_id))
+            if found is not None:
+                out.append(found)
+        if self.ctx.remediator is not None and out:
+            out = self.ctx.remediator.annotate_many(out)
+        return out
+
+    def _cases_post(self, route: str, body: dict) -> None:
+        cases = self.ctx.cases
+        case_id = str(body.get("id", "")).strip()
+        if route == "/api/cases":
+            try:
+                case = cases.create(
+                    title=str(body.get("title", "")),
+                    owner=str(body.get("owner", "")),
+                    severity=str(body.get("severity", "medium")),
+                    finding_ids=body.get("finding_ids") or [],
+                    summary=str(body.get("summary", "")))
+            except ValueError as exc:
+                self._json({"error": str(exc)}, 400)
+                return
+            self._json({"case": case}, 201)
+            return
+        if not case_id:
+            self._json({"error": "id is required"}, 400)
+            return
+        if route == "/api/cases/update":
+            result = cases.update(case_id, **body)
+        elif route == "/api/cases/link":
+            result = cases.link(case_id, body.get("finding_ids") or [],
+                                detach=bool(body.get("detach")))
+        elif route == "/api/cases/note":
+            result = cases.add_note(case_id, str(body.get("text", "")),
+                                    str(body.get("author", "")))
+            if result is None and str(body.get("text", "")).strip():
+                self._json({"error": "unknown case"}, 404)
+                return
+            if result is None:
+                self._json({"error": "note text is required"}, 400)
+                return
+        elif route == "/api/cases/delete":
+            # Deleting a case never touches the findings it referenced; the
+            # evidence and the audit trail outlive the container.
+            if not body.get("confirm"):
+                self._json({"error": "confirmation required",
+                            "detail": "resend with confirm=true"}, 409)
+                return
+            self._json({"deleted": cases.delete(case_id)})
+            return
+        else:
+            self._json({"error": "not found"}, 404)
+            return
+        if result is None:
+            self._json({"error": "unknown case"}, 404)
+            return
+        self._json({"case": result})
+
+    def _report(self, params: dict) -> None:
+        if self.ctx.cases is None:
+            self._json({"error": "cases not enabled"}, 503)
+            return
+        case = self.ctx.cases.get((params.get("case") or "").strip())
+        if case is None:
+            self._json({"error": "unknown case"}, 404)
+            return
+        findings = self._case_findings(case)
+        indicators = summarise(findings).get("indicators", [])
+        campaigns = graph.build(findings, linking_only=True).get("campaigns", [])
+        ledger = []
+        if self.ctx.remediator is not None:
+            status = self.ctx.remediator.status()
+            paths = {f.get("file_path") for f in findings}
+            ledger = [r for r in (status.get("recent") or [])
+                      if r.get("file_path") in paths]
+        html = report.render(case, findings, indicators, campaigns, ledger,
+                             now_iso(), _suite_version())
+        body = html.encode("utf-8")
+        disposition = 'attachment; filename="case-%s.html"' % case["id"]             if params.get("download") == "1" else "inline"
+        self._send(200, body, "text/html; charset=utf-8",
+                   {"Content-Disposition": disposition})
 
     # ----------------------------------------------------------- saved hunts
     def _hunts_path(self) -> Path:
@@ -723,11 +842,16 @@ class DashboardServer(ThreadingHTTPServer):
 
 
 def serve(cfg, engine, store, telemetry, monitor, nvd=None, osv=None,
-          vt=None, remediator=None, guidance=None) -> DashboardServer:
+          vt=None, remediator=None, guidance=None, cases=None) -> DashboardServer:
     httpd = DashboardServer((cfg.host, cfg.port), Handler)
     httpd.ctx = Context(cfg, engine, store, telemetry, monitor, nvd, osv, vt,
-                        remediator, guidance)  # type: ignore[attr-defined]
+                        remediator, guidance, cases)  # type: ignore[attr-defined]
     thread = threading.Thread(target=httpd.serve_forever, name="securitysuite-http",
                               daemon=True)
     thread.start()
     return httpd
+
+
+def _suite_version() -> str:
+    from . import __version__
+    return __version__

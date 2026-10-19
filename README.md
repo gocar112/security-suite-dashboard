@@ -32,6 +32,10 @@ browser dashboard.
 | Enrich | Uses NVD, OSV, CISA KEV, and optional VirusTotal hash lookups for context. |
 | Triage | Acknowledge, resolve, mark false positive, reopen, and clear dashboard lines with backup. |
 | Remediate | Quarantine, restore, delete, and purge detection targets behind hash checks, path confinement, and an audit trail. |
+| Map | Resolves every rule to MITRE ATT&CK techniques and renders a tactic-column coverage matrix, shaded by detection volume. |
+| Hunt | A query language over findings - `severity:critical AND NOT status:resolved` - with saved hunts and a Ctrl-K command palette. |
+| Correlate further | Link analysis over findings, indicators, and rules, clustering findings that share a C2 address or wallet into campaigns. |
+| Case | Groups findings into cases with an owner, status, and notes, and exports a self-contained HTML incident report. |
 
 ## Quick Start
 
@@ -58,7 +62,11 @@ python run.py
 Recommended verification before release:
 
 ```powershell
-python -m compileall securitysuite tools
+python -m compileall securitysuite tools tests
+python tests\smoke.py
+python tests\test_api.py
+python tests\test_hunt.py
+python tests\test_cases.py
 node --check web\app.js
 python tools\summarize_database.py
 ```
@@ -129,6 +137,100 @@ Use **Export CSV** when you want to hand the observable set to a SIEM or ticket.
 
 Use **Quarantine** first when evidence might matter. Use **Delete** only when
 the file is confirmed malicious or disposable.
+
+## The Console
+
+The dashboard is nine views behind a hash router, reachable from the rail or
+with **Ctrl-K**. Switching views shows and hides blocks rather than
+re-rendering them, so the event stream keeps feeding the findings table while
+you are looking at something else.
+
+| View | What it is for |
+| --- | --- |
+| Overview | Posture, KPIs, live feed, source lattice |
+| Findings | The detection stream, filters, triage drawer |
+| Hunt | Query language over findings, saved hunts |
+| Indicators | Extracted observables, defanged, CSV export |
+| ATT&CK | Coverage matrix by tactic; click a technique to filter the stream |
+| Graph | Link analysis and campaign clusters |
+| Cases | Casework and incident reports |
+| Containment | Remediation rails and ledger |
+| Intel | Source adapters |
+
+The frontend is native ES modules under `web/js/`. There is still no build
+step, no bundler, and no CDN.
+
+## Hunting
+
+The findings search box matches a substring against the whole event. That finds
+things, but it cannot express the questions an analyst actually asks - and
+matching `critical` as a substring also hits a file named
+`critical_report.txt`. The Hunt view parses a real query:
+
+```text
+severity:critical AND NOT status:resolved
+technique:T1486 OR technique:T1490
+rule:PowerShell* -file:*samples*
+severity:critical AND (rule:LockBit* OR rule:Conti*)
+```
+
+Fields: `severity status type rule namespace tag file path sha256 technique
+tactic note`. Combine with `AND` / `OR` / `NOT` and parentheses; `*` and `?`
+are wildcards; `-` is shorthand for `NOT`; adjacency implies `AND`; a bare word
+is still free text. An unknown field is a parse error, not a silent no-match.
+
+## ATT&CK Mapping
+
+Every handwritten rule carries its techniques in its own metadata, beside
+severity:
+
+```text
+meta:
+    description = "Text that reads like a ransom note"
+    severity = "critical"
+    mitre = "T1486"
+```
+
+The technique table in [securitysuite/attack.py](securitysuite/attack.py) is
+embedded, not fetched. This suite is loopback-bound and may run with no
+outbound network; a coverage matrix that needs `attack.mitre.org` to render
+fails closed in exactly the environment it is built for.
+
+The 931 generated vulnerable-component rules map to `T1190` by namespace.
+`Demo_TestKeyword` and `EICAR_Test_File` are deliberately unmapped: they are
+test fixtures, not adversary behaviour, and tagging them would put phantom
+coverage in the matrix.
+
+**Reconnaissance and Resource Development show no coverage, and that is
+correct.** A file scanner cannot observe them, and a matrix that implied
+otherwise would be worth less than no matrix.
+
+## Campaigns
+
+Detections arrive as a flat list ordered by time, which is the one view that
+hides the thing you most want to see: that six of them are the same intrusion.
+The Graph view groups findings that share a *linking* indicator - a C2 address,
+a wallet, a hash - into campaigns.
+
+Indicator types that are merely common, such as a CVE id, stay in the graph as
+nodes but do not merge findings. Half a corpus can mention `CVE-2021-44228`; if
+that counted as evidence, every campaign would collapse into one blob.
+
+## Cases And Reports
+
+Triage marks one finding acknowledged. An intrusion is not one finding, and
+"resolved" on six rows says nothing about whether anyone understood how they
+were related. A case holds findings together with an owner, a status, and the
+notes that make the decision reviewable later. Cases reference findings by id
+and never copy them, so a case cannot drift out of date with its evidence.
+
+`GET /api/report?case=<id>` renders one self-contained HTML file - summary,
+ATT&CK mapping, evidence with hashes and matched offsets, indicators,
+correlation, remediation ledger and notes. No external stylesheet, script,
+webfont, or image request; print CSS gives a PDF through the browser rather
+than through a new dependency. Every value is escaped: report content comes
+from file paths, rule matches and extracted indicators, and a report that
+executes markup from the thing it is reporting on is its own incident.
 
 ## Remediation Safety
 
@@ -291,6 +393,15 @@ All endpoints are intended for localhost use. The server rejects non-loopback
 | POST | `/api/nvd/sync` | Sync a trailing NVD modification window |
 | GET / POST | `/api/osv/query` | OSV lookup |
 | GET | `/api/vt/file` | VirusTotal hash reputation |
+| GET | `/api/attack/coverage` | ATT&CK coverage matrix: techniques, tactics, detections |
+| GET | `/api/attack/techniques` | The embedded technique table |
+| GET | `/api/hunt` | Run a hunt query (`?q=`) |
+| GET / POST | `/api/hunt/saved` | List or save named hunts |
+| GET | `/api/graph` | Findings/indicator/rule graph plus campaign clusters |
+| GET / POST | `/api/cases` | List or create cases |
+| GET | `/api/cases/detail` | One case with its findings resolved |
+| POST | `/api/cases/{update,link,note,delete}` | Case mutations |
+| GET | `/api/report` | Self-contained HTML incident report for a case |
 | GET | `/api/stream` | Server-Sent Events stream |
 
 ## Project Layout
@@ -303,7 +414,8 @@ rules/                         YARA rules
 rules/generated/               generated vulnerable-component rules
 samples/                       harmless test files
 uploads/                       default watched folder
-web/                           dashboard HTML/CSS/JS
+web/                           dashboard HTML/CSS
+web/js/                        ES modules: router, hunt, attack, graph, cases
 assets/                        app logo and desktop icon
 book/                          operator and field-guide documentation
 docs/images/                   README screenshots
@@ -311,6 +423,8 @@ docs/database-summary.md       generated local database summary
 data/findings.ndjson           active finding log
 data/triage.json               active triage state
 data/remediation.json          remediation audit/state
+data/cases.json                cases and their notes
+data/hunts.json                saved hunt queries
 data/log-backups/              Clear lines backups
 quarantine/                    quarantined files and metadata
 nvds/                          local NVD cache
