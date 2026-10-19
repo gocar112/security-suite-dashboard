@@ -5,6 +5,7 @@ answer them. No live network calls and no OS auth logs, so they are safe in CI.
 """
 from __future__ import annotations
 
+import json
 import socket
 import sys
 import tempfile
@@ -16,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from securitysuite.cases import CaseStore
 from securitysuite.config import load_config
 from securitysuite.engine import YaraEngine
 from securitysuite.server import serve
@@ -65,7 +67,8 @@ def main() -> int:
         store.add({"event_type": "yara_match", "severity": "high",
                    "file_path": "/x/%d" % i, "matches": []})
 
-    httpd = serve(cfg, engine, store, telemetry, monitor)
+    case_store = CaseStore(str(tmp / "cases.json"))
+    httpd = serve(cfg, engine, store, telemetry, monitor, cases=case_store)
     base = "http://127.0.0.1:%d" % cfg.port
     try:
         time.sleep(0.5)
@@ -92,6 +95,29 @@ def main() -> int:
         status, body = get(base, "/favicon.ico")
         assert_true(status == 200, "favicon should be served, got %s" % status)
         assert_true(len(body) > 0, "favicon body was empty")
+
+        # Hunt endpoint: a good query answers, a bad one explains itself with
+        # a 200 and an error field rather than a crash.
+        status, body = get(base, "/api/hunt?q=severity%3Ahigh")
+        assert_true(status == 200, "hunt query failed: %s" % status)
+        assert_true(b'"matched"' in body, "hunt result missing match count")
+        status, body = get(base, "/api/hunt?q=bogus%3Ax")
+        assert_true(status == 200, "bad hunt query should answer, got %s" % status)
+        assert_true(b"unknown field" in body, "bad query did not explain itself")
+
+        # ES modules must be reachable, or the console does not boot at all.
+        for path in ("/js/core.js", "/js/router.js", "/js/hunt.js",
+                     "/js/palette.js", "/js/attack.js"):
+            status, _ = get(base, path)
+            assert_true(status == 200, "%s returned %s" % (path, status))
+
+        # ...but the containment fix must still hold: no escaping web/.
+        for path in ("/js/../securitysuite/config.py", "/js/../../requirements.txt",
+                     "/../securitysuite/server.js"):
+            status, body = get(base, path)
+            assert_true(status == 404, "%s should be refused, got %s" % (path, status))
+            assert_true(b"import" not in body and b"yara-python" not in body,
+                        "%s leaked file contents" % path)
 
         # Core reads still work.
         for path in ("/", "/app.js", "/styles.css", "/api/state",
@@ -125,6 +151,37 @@ def main() -> int:
         status, _ = get(base, "/api/state")
         assert_true(status == 200,
                     "server unusable after refused POSTs (body left in buffer)")
+
+        # Graph, cases and report round-trip.
+        status, body = get(base, "/api/graph")
+        assert_true(status == 200, "graph failed: %s" % status)
+        assert_true(b'"campaigns"' in body, "graph payload missing campaigns")
+
+        created = urllib.request.Request(
+            base + "/api/cases", data=b'{"title":"API test case","severity":"high"}',
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(created, timeout=10) as response:
+            case_id = json.loads(response.read())["case"]["id"]
+
+        finding_id = json.loads(get(base, "/api/findings?limit=1")[1])["findings"][0]["id"]
+        link = urllib.request.Request(
+            base + "/api/cases/link",
+            data=json.dumps({"id": case_id, "finding_ids": [finding_id]}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(link, timeout=10).read()
+
+        status, body = get(base, "/api/cases/detail?id=" + case_id)
+        assert_true(status == 200, "case detail failed: %s" % status)
+        assert_true(finding_id.encode() in body, "linked finding did not resolve")
+
+        status, body = get(base, "/api/report?case=" + case_id)
+        assert_true(status == 200, "report failed: %s" % status)
+        assert_true(b"Incident report" in body, "report body looks wrong")
+        assert_true(b"src=\"http" not in body and b"@import" not in body,
+                    "report would make an external request")
+
+        status, _ = get(base, "/api/report?case=nosuchcase")
+        assert_true(status == 404, "unknown case should 404, got %s" % status)
 
         # /api/state reports stream health.
         status, body = get(base, "/api/state")
